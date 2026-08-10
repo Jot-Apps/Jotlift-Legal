@@ -4,31 +4,55 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Jotlift</title>
-<meta name="description" content="Jotlift, a minimal workout logging app.">
+<meta name="description" content="Jotlift is a simple workout logger. Log your sets offline, back them up with a free account, and let Jotlift Pro tell you what is next.">
 <style>
 :root{--paper:#FAF6EF;--ink:#211F1B;--ink2:#6b6862;--accent:#186E62;--hair:#e7e0d5;}
 @media (prefers-color-scheme:dark){:root{--paper:#101012;--ink:#ECEDEF;--ink2:#9A9DA5;--accent:#57B3A2;--hair:#38383A;}}
 *{box-sizing:border-box;}
 body{margin:0;background:var(--paper);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased;
-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-min-height:100vh;display:flex;align-items:center;justify-content:center;}
-.wrap{max-width:520px;padding:32px 22px;text-align:center;}
-.brand{font-weight:700;font-size:34px;letter-spacing:-0.02em;margin-bottom:8px;}
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+.wrap{max-width:680px;margin:0 auto;padding:48px 22px 80px;}
+header{border-bottom:1px solid var(--hair);padding-bottom:20px;margin-bottom:28px;}
+.brand{font-weight:700;font-size:20px;letter-spacing:-0.01em;}
 .brand span{color:var(--ink2);font-weight:600;}
-p{font-size:16px;color:var(--ink2);margin:0 0 28px;}
-.nav a{color:var(--accent);margin:0 12px;font-size:16px;}
+h1{font-size:26px;line-height:1.25;margin:20px 0 6px;letter-spacing:-0.01em;}
+.eff{color:var(--ink2);font-size:14px;margin:0;}
+h2{font-size:18px;margin:34px 0 8px;letter-spacing:-0.01em;}
+p,li{font-size:16px;}
+a{color:var(--accent);}
+ul{padding-left:20px;}
+strong{font-weight:600;}
+footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--hair);color:var(--ink2);font-size:14px;}
+.nav{margin-top:10px;}
+.nav a{margin-right:16px;}
 </style>
 </head>
 <body>
 <div class="wrap">
+<header>
 <div class="brand">Jot<span>lift</span></div>
-<p>A minimal workout logging app.</p>
-<div class="nav">
-<a href="/support">Support</a>
-<a href="/privacy">Privacy</a>
-<a href="/terms">Terms</a>
-<a href="/delete">Delete account</a>
-</div>
+<h1>The world&rsquo;s simplest workout logger, built for gym goers.</h1>
+<p class="eff">Open the app, tap the exercise, log the set.</p>
+</header>
+
+<p>Jotlift is a workout log for people who go to the gym and want a record of what they lifted. It keeps the screen quiet while you train, and does the thinking between workouts.</p>
+
+<h2>Logging works offline, with no account</h2>
+<p>Your workouts live on your phone. Nothing is sent anywhere, and nothing is asked of you before you start. Weight and reps come up where you left them last time, so a repeat workout is mostly tapping through. You can export your whole log at any time and keep the file.</p>
+
+<h2>A free account backs it up</h2>
+<p>Sign in and your full log is stored, so a new phone is not a fresh start. Restoring is free and is never locked behind a payment.</p>
+
+<h2>Pro adds the parts that think</h2>
+<p>Auto-progression tells you what is next, and why. Trends show where you are headed. Routines start a workout in the order you set. Sync keeps every device current.</p>
+
+<h2>Where to go next</h2>
+<p><a href="/how-it-works">How Jotlift works</a> covers each part in plain terms, including exactly when auto-progression suggests going up. If you have a question it does not answer, <a href="/support">get in touch</a>.</p>
+
+<footer>
+Jotlift, operated by Issa Zangana (ABN 55 482 265 411).
+<div class="nav"><a href="/how-it-works">How it works</a><a href="/support">Support</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/delete">Delete account</a></div>
+</footer>
 </div>
 </body>
 </html>
