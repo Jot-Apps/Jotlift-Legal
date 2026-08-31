@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+# The dashboard is behind a sign-in and has nothing to index.
+Disallow: /dashboard/
+Sitemap: https://jotlift.app/sitemap.xml

@@ -1,73 +1,96 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-app="jotlift" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Delete your Jotlift account and data</title>
-<meta name="description" content="How to delete your Jotlift account and data, and what happens when you do.">
-<style>
-:root{--paper:#FAF6EF;--ink:#211F1B;--ink2:#6b6862;--accent:#186E62;--hair:#e7e0d5;}
-@media (prefers-color-scheme:dark){:root{--paper:#101012;--ink:#ECEDEF;--ink2:#9A9DA5;--accent:#57B3A2;--hair:#38383A;}}
-*{box-sizing:border-box;}
-body{margin:0;background:var(--paper);color:var(--ink);line-height:1.6;-webkit-font-smoothing:antialiased;
-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
-.wrap{max-width:680px;margin:0 auto;padding:48px 22px 80px;}
-header{border-bottom:1px solid var(--hair);padding-bottom:20px;margin-bottom:28px;}
-.brand{font-weight:700;font-size:20px;letter-spacing:-0.01em;}
-.brand span{color:var(--ink2);font-weight:600;}
-h1{font-size:26px;line-height:1.25;margin:20px 0 6px;letter-spacing:-0.01em;}
-.eff{color:var(--ink2);font-size:14px;margin:0;}
-h2{font-size:18px;margin:34px 0 8px;letter-spacing:-0.01em;}
-p,li{font-size:16px;}
-a{color:var(--accent);}
-ul{padding-left:20px;}
-strong{font-weight:600;}
-footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--hair);color:var(--ink2);font-size:14px;}
-.nav{margin-top:10px;}
-.nav a{margin-right:16px;}
-</style>
+<meta name="description" content="How to delete your Jotlift account and the data we store, what deletion removes, and what stays on your phone.">
+<link rel="canonical" href="https://jotlift.app/delete/">
+<meta property="og:title" content="Delete your Jotlift account and data">
+<meta property="og:description" content="How to delete your Jotlift account and the data we store, what deletion removes, and what stays on your phone.">
+<meta property="og:url" content="https://jotlift.app/delete/">
+<meta property="og:type" content="website">
+<link rel="icon" href="/assets/img/glyph.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/assets/css/site.css">
+<script>
+  /* Applied before first paint so a light-mode reader never sees a dark flash. */
+  try {
+    var t = localStorage.getItem('jotlift.theme');
+    if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
 </head>
-<body>
-<div class="wrap">
-<header>
-<div class="brand">Jot<span>lift</span></div>
-<h1>Delete your account and data</h1>
-<p class="eff">Effective date: 6 July 2026</p>
+<body class="jotx">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="site-header__inner">
+    <a class="wordmark" href="/">
+      <svg width="24" height="24" viewBox="0 0 100 100" fill="none" aria-hidden="true"><g transform="translate(10,10) scale(0.8)"><path d="M67 26 L67 58 C67 73 56 81 46 81 C36 81 30 74 30 66" fill="none" stroke="var(--color-accent)" stroke-width="12.5" stroke-linecap="round" stroke-linejoin="round"/></g></svg>
+      <span class="wordmark__text">Jot<span>lift</span></span>
+    </a>
+    <nav class="site-nav" aria-label="Main">
+      <a href="/">Home</a>
+      <a href="/how-it-works/">How it works</a>
+      <a href="/pricing/">Pricing</a>
+      <a href="/support/">Support</a>
+      <a href="/dashboard/">Dashboard</a>
+    </nav>
+    <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch appearance">
+      <svg class="icon-sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <svg class="icon-moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+    </button>
+  </div>
 </header>
 
-<p>This page explains how to delete your Jotlift account and the data we store, and what happens when you do. Jotlift (ABN 55 482 265 411) is operated by a sole trader in New South Wales, Australia.</p>
+<main id="main" class="shell-legal prose legal">
+  <h1 class="display h-legal">Delete your account and data</h1>
+  <p class="effective">Effective date: 6 July 2026</p>
 
-<h2>Two ways to delete your account</h2>
-<p><strong>In the app.</strong> Open Settings, go to your account, and choose Delete account. Confirm when asked. This is the quickest way.</p>
-<p><strong>By email.</strong> If you cannot use the app, email us at <a href="mailto:jotliftapp@gmail.com">jotliftapp@gmail.com</a> from the address on your account and ask us to delete your account. We may need to confirm it is your account before we act.</p>
+  <p class="gap">This page explains how to delete your Jotlift account and the data we store, and what happens when you do. Jotlift (ABN 55 482 265 411) is operated by a sole trader in New South Wales, Australia.</p>
 
-<h2>What deletion removes</h2>
-<p>When you delete your account, we permanently delete:</p>
-<ul>
-<li>your account and sign-in;</li>
-<li>your data stored on our servers for backup and sync, including your workout logs, exercises, routines, history, and your bodyweight and measurements;</li>
-<li>your subscription entitlement record on our side.</li>
-</ul>
+  <h2>Two ways to delete your account</h2>
+  <p><strong>In the app.</strong> Open Settings, go to your account, and choose Delete account. Confirm when asked. This is the quickest way.</p>
+  <p class="gap"><strong>By email.</strong> If you cannot use the app, email us at <a href="mailto:jotliftapp@gmail.com">jotliftapp@gmail.com</a> from the address on your account and ask us to delete your account. We may need to confirm it is your account before we act.</p>
 
-<h2>What you keep</h2>
-<p>Deleting your account does not wipe your phone. The copy of your data on your device stays, so you can keep using Jotlift as a local notebook, or export it first. If you want to remove the local copy too, delete the app or clear its data on your device.</p>
+  <h2>What deletion removes</h2>
+  <p style="margin-bottom:12px">When you delete your account, we permanently delete:</p>
+  <ul style="margin-bottom:32px">
+    <li>your account and sign-in;</li>
+    <li>your data stored on our servers for backup and sync, including your workout logs, exercises, routines, history, and your bodyweight and measurements;</li>
+    <li>your subscription entitlement record on our side.</li>
+  </ul>
 
-<h2>About your subscription</h2>
-<p>Deleting your account does not cancel a paid subscription. Subscriptions are billed by the App Store or Google Play, so if you have Jotlift Pro, cancel it in your App Store or Google Play account settings. If you do not cancel, billing continues even after the account is deleted.</p>
+  <h2>What you keep</h2>
+  <p class="gap">Deleting your account does not wipe your phone. The copy of your data on your device stays, so you can keep using Jotlift as a local notebook, or export it first. If you want to remove the local copy too, delete the app or clear its data on your device.</p>
 
-<h2>About usage analytics</h2>
-<p>If you turned on usage analytics, deleting your account does not remove past usage events, because they are not linked to you. When you opt out or delete your account, collection stops and anything still queued on your device is deleted. Usage events already sent are kept only in de-identified, aggregate form, are not tied to your identity, and cannot be traced back to an individual, so they cannot be removed one person at a time.</p>
+  <h2>About your subscription</h2>
+  <p class="gap">Deleting your account does not cancel a paid subscription. Subscriptions are billed by the app store, so if you have Jotlift Pro, cancel it in your store account settings. If you do not cancel, billing continues even after the account is deleted.</p>
 
-<h2>How long it takes</h2>
-<p>In-app deletion happens straight away. Email requests are actioned within a reasonable time, usually within a few days.</p>
+  <h2>About usage analytics</h2>
+  <p class="gap">If you turned on usage analytics, deleting your account does not remove past usage events, because they are not linked to you. When you opt out or delete your account, collection stops and anything still queued on your device is deleted. Usage events already sent are kept only in de-identified, aggregate form, are not tied to your identity, and cannot be traced back to an individual, so they cannot be removed one person at a time.</p>
 
-<h2>Contact</h2>
-<p>Jotlift, ABN 55 482 265 411.<br>Email: <a href="mailto:jotliftapp@gmail.com">jotliftapp@gmail.com</a></p>
+  <h2>How long it takes</h2>
+  <p class="gap">In-app deletion happens straight away. Email requests are actioned within a reasonable time, usually within a few days.</p>
 
-<footer>
-Jotlift, ABN 55 482 265 411.
-<div class="nav"><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/delete">Delete account</a></div>
+  <h2>Contact</h2>
+  <p style="margin:0">Jotlift, ABN 55 482 265 411.<br>Email: <a href="mailto:jotliftapp@gmail.com">jotliftapp@gmail.com</a></p>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <p>Jotlift, ABN 55 482 265 411</p>
+    <nav aria-label="Footer">
+      <a href="/how-it-works/">How it works</a>
+      <a href="/pricing/">Pricing</a>
+      <a href="/support/">Support</a>
+      <a href="/privacy/">Privacy</a>
+      <a href="/terms/">Terms</a>
+      <a href="/delete/">Delete account</a>
+    </nav>
+  </div>
 </footer>
-</div>
+
+<script type="module" src="/assets/js/page.js"></script>
 </body>
 </html>

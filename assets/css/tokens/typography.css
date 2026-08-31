@@ -1,0 +1,75 @@
+/* Jot — typography tokens
+ *
+ * TYPE LICENSING (binding rule):
+ *   SF Pro is licensed for Apple-PLATFORM SOFTWARE ONLY. It must NOT render on
+ *   any non-app surface: web, App Store listing, social, ads, packaging.
+ *   For every one of those surfaces, INTER (SIL OFL) is the official, canonical
+ *   typeface — not a proxy, not a fallback.
+ *
+ *   - The native app renders SF Pro. It is set by the OS / native frameworks,
+ *     never by this stylesheet. There is deliberately NO SF Pro pathway in the
+ *     font stacks below, and NO @font-face for it (see tokens/fonts.css), so
+ *     SF Pro can never leak onto a web surface through these tokens — not even
+ *     via -apple-system / system-ui (both resolve to SF Pro on Apple devices,
+ *     so neither appears here).
+ *   - Everything the CSS touches (cards, UI-kit recreations, slides, consumer
+ *     artifacts) is a non-app surface and renders Inter.
+ *
+ * The scale is anchored 1:1 to Apple's iOS text styles (premium-by-familiarity)
+ * and Inter's metrics sit close to it. Case is SENTENCE CASE everywhere (D61).
+ * Numerals are tabular for weights, reps, timers and charts (alignment).
+ */
+
+:root {
+  /* CANONICAL web/non-app stacks — Inter only. Inter is webfont-loaded
+     (tokens/fonts.css) so it always wins; the generic fallbacks are sans only
+     and never route to SF Pro. Use these for ALL design-system output. */
+  --font-text:    "Inter", "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Inter", "Helvetica Neue", Arial, sans-serif;
+  /* Tabular numerals utility (apply to figures that must align) */
+  --font-numeric: "Inter", "Helvetica Neue", Arial, sans-serif;
+
+  /* NATIVE-APP NOTE (no token by design): the shipped iOS/Android app renders
+     its system font, set by the OS — iOS:
+       -apple-system, "SF Pro Text" / "SF Pro Display", system-ui
+     Android: "Roboto", system-ui. SF Pro is deliberately NOT exposed as a CSS
+     custom property here: as a font-family value it would register as a shipped
+     webfont and could render in a browser, breaking the Apple-platform-only
+     licence. Engineers set it natively; this stylesheet never does. */
+
+  /* ---- iOS text styles: size / line-height / weight ---- */
+  --type-display-size:   34px;  --type-display-line:   41px;  --type-display-weight:  700;
+  --type-title-1-size:   28px;  --type-title-1-line:   34px;  --type-title-1-weight:  700;
+  --type-title-2-size:   22px;  --type-title-2-line:   28px;  --type-title-2-weight:  700;
+  --type-title-3-size:   20px;  --type-title-3-line:   25px;  --type-title-3-weight:  600;
+  --type-headline-size:  17px;  --type-headline-line:  22px;  --type-headline-weight: 600;
+  --type-body-size:      17px;  --type-body-line:      22px;  --type-body-weight:     400;
+  --type-callout-size:   16px;  --type-callout-line:   21px;  --type-callout-weight:  400;
+  --type-subhead-size:   15px;  --type-subhead-line:   20px;  --type-subhead-weight:  400;
+  --type-footnote-size:  13px;  --type-footnote-line:  18px;  --type-footnote-weight: 400;
+  --type-caption-size:   12px;  --type-caption-line:   16px;  --type-caption-weight:  400;
+
+  /* Weight scale */
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  /* Letter spacing — tighten optically at display sizes */
+  --tracking-display: -0.02em;
+  --tracking-title:   -0.01em;
+  --tracking-body:     0em;
+}
+
+/* ---- Optional type-style helper classes (component CSS may also map directly) ---- */
+.jot-display   { font-family: var(--font-display); font-size: var(--type-display-size);  line-height: var(--type-display-line);  font-weight: var(--type-display-weight);  letter-spacing: var(--tracking-display); }
+.jot-title-1   { font-family: var(--font-display); font-size: var(--type-title-1-size);  line-height: var(--type-title-1-line);  font-weight: var(--type-title-1-weight);  letter-spacing: var(--tracking-title); }
+.jot-title-2   { font-family: var(--font-display); font-size: var(--type-title-2-size);  line-height: var(--type-title-2-line);  font-weight: var(--type-title-2-weight);  letter-spacing: var(--tracking-title); }
+.jot-title-3   { font-family: var(--font-text);    font-size: var(--type-title-3-size);  line-height: var(--type-title-3-line);  font-weight: var(--type-title-3-weight); }
+.jot-headline  { font-family: var(--font-text);    font-size: var(--type-headline-size); line-height: var(--type-headline-line); font-weight: var(--type-headline-weight); }
+.jot-body      { font-family: var(--font-text);    font-size: var(--type-body-size);     line-height: var(--type-body-line);     font-weight: var(--type-body-weight); }
+.jot-callout   { font-family: var(--font-text);    font-size: var(--type-callout-size);  line-height: var(--type-callout-line);  font-weight: var(--type-callout-weight); }
+.jot-subhead   { font-family: var(--font-text);    font-size: var(--type-subhead-size);  line-height: var(--type-subhead-line);  font-weight: var(--type-subhead-weight); }
+.jot-footnote  { font-family: var(--font-text);    font-size: var(--type-footnote-size); line-height: var(--type-footnote-line); font-weight: var(--type-footnote-weight); }
+.jot-caption   { font-family: var(--font-text);    font-size: var(--type-caption-size);  line-height: var(--type-caption-line);  font-weight: var(--type-caption-weight); }
+.jot-numeric   { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
