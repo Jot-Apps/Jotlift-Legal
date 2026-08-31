@@ -21,6 +21,43 @@
 @import "tokens/spacing.css";
 @import "tokens/elevation.css";
 
+/* The light half of the semantic set, stated EXPLICITLY.
+ *
+ * colors.css puts light on bare `:root` and dark behind `[data-theme="dark"]`,
+ * which is right for a page that owns its own root element: `data-theme="light"`
+ * there simply falls through to `:root`. It stops being right the moment this
+ * stylesheet renders inside a host that has already stamped a theme higher up,
+ * because a `light` stamp below a `dark` one then inherits dark and has nothing
+ * to reset it with. Restating the light tokens against the same selector the
+ * dark block uses makes the toggle win in BOTH directions, wherever it sits. */
+[data-theme="light"] {
+  --color-canvas:          var(--paper-100);
+  --color-surface:         var(--paper-50);
+  --color-elevated:        var(--white);
+  --color-hairline:        var(--paper-200);
+  --color-scrim:           rgba(33, 31, 27, 0.32);
+
+  --color-text:            var(--ink-900);
+  --color-text-quiet:      var(--ink-600);
+  --color-text-decorative: var(--ink-400);
+
+  --color-accent:          var(--teal-deep);
+  --color-accent-soft:     var(--teal-soft-l);
+  --color-on-accent:       var(--white);
+
+  --color-success:         var(--grn-deep);
+  --color-success-soft:    var(--grn-soft-l);
+  --color-danger:          var(--red-deep);
+  --color-danger-soft:     var(--red-soft-l);
+  --color-on-danger:       var(--white);
+  --color-warning:         var(--amb-deep);
+  --color-warning-soft:    var(--amb-soft-l);
+
+  --elev-1: 0 1px 3px rgba(33, 31, 27, 0.07);
+  --elev-2: 0 2px 8px rgba(33, 31, 27, 0.10);
+  --elev-3: 0 12px 32px rgba(33, 31, 27, 0.16);
+}
+
 /* ============================================================ reset + ground */
 
 *, *::before, *::after { box-sizing: border-box; }
