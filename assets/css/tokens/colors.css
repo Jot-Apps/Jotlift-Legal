@@ -1,0 +1,178 @@
+/* Jot — color tokens
+ *
+ * Three tiers: PRIMITIVE (raw, named by appearance) -> SEMANTIC (named by intent,
+ * the only layer apps consume) -> component (scoped, lives with components).
+ * One semantic set, two modes: warm-paper (light) <-> graphite (dark).
+ *
+ * THE LADDER STEPS UPWARD: canvas -> surface -> elevated, each lighter than the
+ * one beneath it in light mode, each reading as raised in dark mode. Check the
+ * DIRECTION, not just the contrast ratio: contrast measures ink against ground
+ * and says nothing about whether the ground steps the right way. A shipped app
+ * had this inverted (canvas lighter than surface, so every card sank into its
+ * own page and only a shadow lifted it) and every contrast gate passed the whole
+ * time. Confirm direction first, ratios second.
+ *
+ * Hard rules (DESIGN.md §2, D49/D50/D51/D67/D71):
+ *  - Never pure #FFF / #000 (halation).
+ *  - Depth is TONAL + SHADOW, never a border. A card is a different tone that
+ *    casts a soft shadow. Hairlines divide rows INSIDE a card; they never
+ *    outline one. If you need a rectangle around content to make it read as a
+ *    card, the tones are wrong.
+ *  - Tint-scarcity: --color-accent appears ONLY on tappable / active elements.
+ *  - success = signal (never a button). danger = destructive/error.
+ *  - Accent is APP-LAYER: a new Jot app swaps the accent ramp + re-points
+ *    --color-accent / --color-accent-soft, and changes nothing else.
+ *
+ * PER-APP ACCENT: the family ships two accent ramps. Jotlift's mint-teal is the
+ * default in :root. Set data-app="joteat" to re-point the accent aliases; put it
+ * on the SAME element as data-theme (normally <html>). The glyph is SPINE, not
+ * app layer: every Jot app shares the one locked typographic J and differentiates
+ * by accent only, never by a new letterform.
+ */
+
+:root {
+  /* ---- PRIMITIVE: paper (light surfaces) ---- */
+  --paper-50:  #FAF6EF;
+  --paper-100: #F0EADE;
+  --paper-200: #E4DDCF;
+  --white:     #FFFFFF;
+
+  /* ---- PRIMITIVE: graphite (dark surfaces) ---- */
+  --graphite-900: #17181C;
+  --graphite-800: #212329;
+  --graphite-700: #262931;
+  --graphite-600: #2E3036;
+
+  /* ---- PRIMITIVE: ink (light text) ---- */
+  --ink-900: #211F1B;
+  --ink-600: #635E54;
+  --ink-400: #847E70;
+
+  /* ---- PRIMITIVE: ink (dark text) ---- */
+  --dark-ink-50:  #ECEDEF;
+  --dark-ink-300: #9A9DA5;
+  --dark-ink-500: #6E727A;
+
+  /* ---- PRIMITIVE: accent ramp — APP LAYER (Jotlift mint-teal) ---- */
+  /* Contrast: 5.66 on canvas, 5.09 on surface. */
+  --teal-deep:   #186E62;
+  --teal-bright: #57B3A2;
+  --teal-soft-l: #DFEDE9;
+  --teal-soft-d: #15302A;
+
+  /* ---- PRIMITIVE: accent ramp — APP LAYER (Joteat royal purple) ---- */
+  /* PROVISIONAL — NOT APPROVED. Joteat's direction is ROYAL PURPLE and it has
+     never actually been rendered against the ground. These four values are a
+     placeholder so the app layer resolves; they are not a decision.
+     GATE: an accent is tuned against a specific ground. These were picked
+     against warm paper. Whether Joteat keeps warm paper as its ground is
+     Joteat's own call, and if it drops it the accent needs re-tuning. Do not
+     treat these hexes as final, and do not generate extra stops from them. */
+  --purple-deep:   #6158A5;
+  --purple-bright: #9B91F1;
+  --purple-soft-l: #E5E4F3;
+  --purple-soft-d: #1E1B33;
+
+  /* ---- PRIMITIVE: success (green) ---- */
+  --grn-deep:   #1F6E33;
+  --grn-bright: #5BC46E;
+  --grn-soft-l: #E2EFE4;
+  --grn-soft-d: #17301F;
+
+  /* ---- PRIMITIVE: danger (red) ---- */
+  --red-deep:   #BC3B30;
+  --red-bright: #FF6B60;
+  --red-soft-l: #F8E5E2;
+  --red-soft-d: #371B1A;
+
+  /* ---- PRIMITIVE: warning (amber) ---- */
+  --amb-deep:   #8A5A00;
+  --amb-bright: #E8A23A;
+  --amb-soft-l: #F6EBD6;
+  --amb-soft-d: #33260F;
+
+  /* ================= SEMANTIC — LIGHT (warm paper) ================= */
+  /* Ladder steps upward: canvas (most recessive) -> surface -> elevated. */
+  --color-canvas:          var(--paper-100);  /* 60 · background        */
+  --color-surface:         var(--paper-50);   /* 30 · cards, floats     */
+  --color-elevated:        var(--white);      /* top of stack           */
+  --color-hairline:        var(--paper-200);  /* borders                */
+  --color-scrim:           rgba(33, 31, 27, 0.32); /* modal/sheet backdrop (D71) */
+
+  --color-text:            var(--ink-900);    /* primary text           */
+  --color-text-quiet:      var(--ink-600);    /* secondary — recede via size/weight */
+  --color-text-decorative: var(--ink-400);    /* GLYPHS ONLY, never text, >=3:1 */
+
+  --color-accent:          var(--teal-deep);  /* ACTIONS ONLY           */
+  --color-accent-soft:     var(--teal-soft-l);/* accent tint background */
+  --color-on-accent:       var(--white);      /* label on accent fill   */
+
+  --color-success:         var(--grn-deep);   /* done / good signal     */
+  --color-success-soft:    var(--grn-soft-l);
+  --color-danger:          var(--red-deep);   /* destructive / error    */
+  --color-danger-soft:     var(--red-soft-l);
+  --color-on-danger:       var(--white);      /* white on danger FILL (light only) */
+  --color-warning:         var(--amb-deep);
+  --color-warning-soft:    var(--amb-soft-l);
+}
+
+/* ================= SEMANTIC — DARK (graphite) ================= */
+/* Activated by [data-theme="dark"] on any ancestor. Light is the default; a
+   consumer opts into dark by setting data-theme="dark" (the in-app appearance
+   toggle and the native OS setting both map to this). */
+[data-theme="dark"] {
+  --color-canvas:          var(--graphite-900);
+  --color-surface:         var(--graphite-800);
+  --color-elevated:        var(--graphite-700);
+  --color-hairline:        var(--graphite-600);
+  --color-scrim:           rgba(0, 0, 0, 0.48);
+
+  --color-text:            var(--dark-ink-50);
+  --color-text-quiet:      var(--dark-ink-300);
+  --color-text-decorative: var(--dark-ink-500); /* GLYPHS ONLY, never text */
+
+  --color-accent:          var(--teal-bright);
+  --color-accent-soft:     var(--teal-soft-d);
+  --color-on-accent:       var(--graphite-900); /* dark ink on bright teal */
+
+  --color-success:         var(--grn-bright);
+  --color-success-soft:    var(--grn-soft-d);
+  --color-danger:          var(--red-bright);
+  --color-danger-soft:     var(--red-soft-d);
+  /* D67 rule 2: dark destructive is danger-text on danger-soft, NEVER white-on-red. */
+  --color-on-danger:       var(--red-bright);
+  --color-warning:         var(--amb-bright);
+  --color-warning-soft:    var(--amb-soft-d);
+}
+
+/* ================= APP LAYER — accent re-pointing ================= */
+/* The ONLY thing an app overrides in this file. Everything else is spine.
+   Usage: <html data-app="joteat" data-theme="dark">. Jotlift is the :root
+   default; the explicit [data-app="jotlift"] block exists so a Jotlift subtree
+   can sit inside a Joteat page (docs, comparison cards) and restore its ramp. */
+[data-app="jotlift"] {
+  --color-accent:      var(--teal-deep);
+  --color-accent-soft: var(--teal-soft-l);
+  --color-on-accent:   var(--white);
+}
+[data-theme="dark"][data-app="jotlift"],
+[data-theme="dark"] [data-app="jotlift"],
+[data-app="jotlift"] [data-theme="dark"] {
+  --color-accent:      var(--teal-bright);
+  --color-accent-soft: var(--teal-soft-d);
+  --color-on-accent:   var(--graphite-900);
+}
+
+[data-app="joteat"] {
+  --color-accent:      var(--purple-deep);
+  --color-accent-soft: var(--purple-soft-l);
+  --color-on-accent:   var(--white);
+}
+[data-theme="dark"][data-app="joteat"],
+[data-theme="dark"] [data-app="joteat"],
+[data-app="joteat"] [data-theme="dark"] {
+  --color-accent:      var(--purple-bright);
+  --color-accent-soft: var(--purple-soft-d);
+  --color-on-accent:   var(--graphite-900);
+}
+

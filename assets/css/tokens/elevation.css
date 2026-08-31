@@ -1,0 +1,57 @@
+/* Jot — elevation & motion tokens
+ *
+ * DEPTH (DESIGN.md §4): depth is TONAL + SHADOW, never a border. A card is a
+ * different tone than its page and casts a soft shadow. Hairlines divide rows
+ * INSIDE a card; they never outline one. If a rectangle is what makes content
+ * read as a card, the tones are wrong.
+ *
+ * GLASS is an enhancement, never a foundation (DESIGN.md §5.2): design the solid
+ * rendering first. If turning glass off changes anything except how nice it
+ * looks, that is a defect. Reduce Transparency is the test instrument.
+ *
+ * MOTION (DESIGN.md §7, D65): confirm / orient / reward only, never decorate.
+ * Acknowledge every tap <100ms. Spend delight only at the peak and the end.
+ * Always honour reduce-motion. Ceiling ~500ms.
+ */
+
+:root {
+  /* ---- Elevation shadows (light mode tuned; soft, low-spread) ---- */
+  --elev-0: none;                                    /* flat page ground     */
+  --elev-1: 0 1px 3px rgba(33, 31, 27, 0.07);        /* cards, rows: default */
+  --elev-2: 0 2px 8px rgba(33, 31, 27, 0.10);        /* menus, raised cards  */
+  --elev-3: 0 12px 32px rgba(33, 31, 27, 0.16);      /* sheets, modals       */
+
+  /* ---- Liquid-Glass approximation (web preview) ---- */
+  --glass-blur:    18px;
+  --glass-tint-l:  rgba(250, 246, 239, 0.72);
+  --glass-tint-d:  rgba(33, 35, 41, 0.62);
+  --glass-border-l: rgba(33, 31, 27, 0.08);
+  --glass-border-d: rgba(255, 255, 255, 0.10);
+
+  /* ---- Motion timing ---- */
+  --motion-instant:  90ms;    /* @kind other */ /* acknowledge a tap */
+  --motion-quick:    180ms;   /* @kind other */ /* small state changes */
+  --motion-standard: 320ms;   /* @kind other */ /* push / pop / sheet rise */
+  --motion-emphasis: 480ms;   /* @kind other */ /* peak / end reward only */
+
+  /* ---- Easing ---- */
+  --ease-standard: cubic-bezier(0.4, 0.0, 0.2, 1);   /* @kind other */ /* orient: in/out */
+  --ease-out:      cubic-bezier(0.0, 0.0, 0.2, 1);    /* @kind other */ /* enter */
+  --ease-in:       cubic-bezier(0.4, 0.0, 1, 1);      /* @kind other */ /* exit */
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1); /* @kind other */ /* reward spring (peak/end) */
+}
+
+[data-theme="dark"] {
+  --elev-1: 0 1px 3px rgba(0, 0, 0, 0.28);
+  --elev-2: 0 2px 8px rgba(0, 0, 0, 0.32);
+  --elev-3: 0 12px 32px rgba(0, 0, 0, 0.48);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-instant:  0ms; /* @kind other */
+    --motion-quick:    0ms; /* @kind other */
+    --motion-standard: 0ms; /* @kind other */
+    --motion-emphasis: 0ms; /* @kind other */
+  }
+}

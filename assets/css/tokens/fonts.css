@@ -1,0 +1,12 @@
+/* Jot — webfonts
+ *
+ * TYPE LICENSING: SF Pro is licensed for Apple-platform SOFTWARE ONLY and must
+ * not render on web / App Store listings / social / ads / packaging. For all of
+ * those, INTER (SIL OFL) is the official, canonical typeface. So the only
+ * webfont this design system ships is Inter, and there is intentionally NO
+ * @font-face for SF Pro — declaring one (even local()) would let SF Pro render
+ * in a browser on Apple devices, which the licence forbids. The native app gets
+ * SF Pro from the OS, not from any CSS here.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');

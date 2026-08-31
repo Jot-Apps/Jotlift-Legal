@@ -1,0 +1,31 @@
+/* Jot — spacing, radius & layout tokens
+ *
+ * 8pt grid, base-4 spacing scale (DESIGN.md §5). Primitive --space-* with
+ * semantic layout aliases on top. Radius is "gentle, not bubbly" (iOS
+ * continuous corners). Touch target floor is 44pt.
+ */
+
+:root {
+  /* ---- Base-4 spacing scale ---- */
+  --space-1:  4px;   /* hairline gaps, icon-to-label */
+  --space-2:  8px;   /* tight stacks */
+  --space-3:  12px;  /* control padding */
+  --space-4:  16px;  /* default gutter / card padding */
+  --space-5:  20px;  /* comfortable gap */
+  --space-6:  24px;  /* between groups */
+  --space-8:  32px;  /* section gap */
+  --space-10: 40px;  /* major section / screen top */
+  --space-12: 48px;  /* hero spacing */
+
+  /* ---- Semantic layout aliases ---- */
+  --layout-gutter:      var(--space-4);
+  --layout-section-gap: var(--space-8);
+  --layout-row-min:     44px;   /* minimum touch target */
+
+  /* ---- Radius (continuous-corner feel) ---- */
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   16px;
+  --radius-xl:   20px;
+  --radius-pill: 999px;
+}
