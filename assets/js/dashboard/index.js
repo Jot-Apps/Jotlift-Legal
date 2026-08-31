@@ -21,8 +21,9 @@ import { icon } from '../icons.js';
 import * as api from './api.js';
 import { materialise, buildModel } from './store.js';
 import { fmt, priceRow, savedCountry } from '../prices.js';
-import { fromMilli, toMilli, fullDate } from './domain.js';
+import { fromMilli, toMilli, fullDate, normalizeName, defaultIncrementMilli } from './domain.js';
 import * as views from './views.js';
+import { parseReps } from './views.js';
 import { buildRows, toCsv, toXlsx, download } from './export.js';
 
 initTheme();
@@ -63,6 +64,8 @@ const state = {
   exportTo: null,
   weightStepMilli: null,
   busy: false,
+  rows: [],
+  creatingExercise: false,
 };
 
 /* Remember the tab across a reload, the way a signed-in surface should. */
@@ -114,6 +117,7 @@ async function load() {
       : null;
 
     const rows = await api.readFeed();
+    state.rows = rows;
     const model = buildModel(materialise(rows), { cutoff: state.cutoff ?? Infinity });
     state.model = model;
     state.weightStepMilli = model.weightStepMilli;
@@ -146,16 +150,46 @@ function render() {
 
   applyAppLink();
 
-  // The chart opens pinned to the NEWEST session and drags back exactly as far
-  // as the first, never forward past the newest.
+  /* The chart opens pinned to the NEWEST session and drags back exactly as far
+   * as the first, never forward past the newest. It re-pins only when the SERIES
+   * changes: another exercise, another metric, a new cutoff.
+   *
+   * On any other re-render the reader's own scroll position is put back. A
+   * re-render replaces the scroller, and a fresh element starts at 0, so without
+   * this a reader who had dragged back through a year of history was returned to
+   * the start by something as incidental as saving a name. */
   const scroller = root.querySelector('[data-chart-scroll]');
   if (scroller) {
     const key = [state.tab, state.progressExercise, state.metric, state.cutoff].join('|');
     if (key !== render.pinned) {
       render.pinned = key;
       scroller.scrollLeft = scroller.scrollWidth;
+    } else if (render.scrollLeft) {
+      scroller.scrollLeft = render.scrollLeft;
     }
+    scroller.addEventListener('scroll', () => {
+      render.scrollLeft = scroller.scrollLeft;
+    });
   }
+}
+
+/**
+ * Move the guide, the dot and the readout to a point, WITHOUT re-rendering.
+ * Each hit target carries its own geometry, so this is three style writes; a
+ * re-render would replace the scroller and lose the reader's place.
+ */
+function pickPoint(index, hit) {
+  state.point = index;
+  const guide = root.querySelector('[data-chart-guide]');
+  const dot = root.querySelector('[data-chart-pick]');
+  const readout = root.querySelector('[data-chart-readout]');
+  if (!guide || !dot || !readout) return;
+  guide.style.left = hit.dataset.left;
+  dot.style.left = hit.dataset.left;
+  dot.style.top = hit.dataset.top;
+  guide.hidden = false;
+  dot.hidden = false;
+  readout.textContent = hit.dataset.readout;
 }
 
 function notice() {
@@ -430,22 +464,85 @@ function onClick(e) {
   if (point) {
     // Hover or click pins a session and it STAYS pinned: a readout that vanishes
     // the moment the pointer moves is one nobody gets to finish reading.
-    state.point = Number(point.dataset.point);
-    render();
+    pickPoint(Number(point.dataset.point), point);
     return;
   }
 
   const exercise = target('[data-exercise]');
   if (exercise) {
-    state.selectedExercise = exercise.dataset.exercise;
+    // Clicking the open one closes it, so the panel is never stuck open.
+    const id = exercise.dataset.exercise;
+    state.selectedExercise = state.selectedExercise === id ? null : id;
+    state.creatingExercise = false;
     render();
+    return;
+  }
+
+  if (target('[data-add-exercise]')) {
+    state.creatingExercise = true;
+    state.selectedExercise = null;
+    render();
+    root.querySelector('[data-exercise-create] [data-field="name"]')?.focus();
+    return;
+  }
+  if (target('[data-exercise-create-cancel]')) {
+    state.creatingExercise = false;
+    render();
+    return;
+  }
+  if (target('[data-exercise-create-save]')) {
+    createExercise();
+    return;
+  }
+  if (target('[data-exercise-cancel]')) {
+    state.selectedExercise = null;
+    render();
+    return;
+  }
+  const exSave = target('[data-exercise-save]');
+  if (exSave) {
+    saveExercise(exSave.dataset.exerciseSave);
+    return;
+  }
+  const exDelete = target('[data-exercise-delete]');
+  if (exDelete) {
+    deleteExercise(exDelete.dataset.exerciseDelete);
     return;
   }
 
   const routine = target('[data-routine]');
   if (routine) {
+    harvestRoutine();
     state.selectedRoutine = routine.dataset.routine;
     render();
+    return;
+  }
+  if (target('[data-routine-new]')) {
+    createRoutine();
+    return;
+  }
+  const rtSave = target('[data-routine-save]');
+  if (rtSave) {
+    saveRoutine(rtSave.dataset.routineSave);
+    return;
+  }
+  const rtDelete = target('[data-routine-delete]');
+  if (rtDelete) {
+    deleteRoutine(rtDelete.dataset.routineDelete);
+    return;
+  }
+  if (target('[data-routine-add]')) {
+    addRoutineExercise();
+    return;
+  }
+  const rtMove = target('[data-routine-move]');
+  if (rtMove) {
+    moveRoutineItem(rtMove.closest('[data-routine-item]').dataset.routineItem, rtMove.dataset.routineMove);
+    return;
+  }
+  const rtRemove = target('[data-routine-remove]');
+  if (rtRemove) {
+    removeRoutineItem(rtRemove.closest('[data-routine-item]').dataset.routineItem);
     return;
   }
 
@@ -472,10 +569,6 @@ function onClick(e) {
     return;
   }
 
-  if (target('[data-add-exercise]')) {
-    state.message = 'Adding an exercise happens on your phone for now. It appears here on the next backup.';
-    render();
-  }
 }
 
 /* Hovering a chart point reads it out, the same as clicking it. */
@@ -486,11 +579,19 @@ root.addEventListener(
     if (!point) return;
     const index = Number(point.dataset.point);
     if (state.point === index) return;
-    state.point = index;
-    render();
+    pickPoint(index, point);
   },
   true,
 );
+
+/* The subtype field only means anything for a bodyweight exercise, so it
+   appears and disappears with the equipment select, without a re-render. */
+root.addEventListener('change', (e) => {
+  if (!e.target.matches('[data-equipment-select]')) return;
+  const panel = e.target.closest('[data-exercise-form], [data-exercise-create]');
+  const subtype = panel?.querySelector('[data-subtype-field]');
+  if (subtype) subtype.hidden = e.target.value !== 'bodyweight';
+});
 
 function onInput(e) {
   if (e.target.matches('[data-exercise-query]')) {
@@ -541,9 +642,17 @@ async function onSubmit(e) {
 
 /* The dashboard writes through the same relay the phone pushes to, so a web
  * edit lands under the same rules: the relay validates the stamp against its own
- * clock and settles the envelope applied or stale. The payload is the row the
- * app last wrote, with ONLY the edited field changed, so nothing the app stores
- * is dropped by a client that did not know about it. */
+ * clock and settles the envelope applied or stale.
+ *
+ * AN EDIT ECHOES THE ROW THE APP LAST WROTE and changes only the edited field,
+ * so nothing the app stores is dropped by a client that did not know about it.
+ * A NEW row is built with the same field set the app's own repositories build
+ * (src/db/repositories/*.ts), so the phone reads it as one of its own.
+ *
+ * After a successful push the envelope is appended to the feed this page already
+ * holds and the model is rebuilt from it. Patching the derived structures by
+ * hand would be faster and would drift; rebuilding cannot.
+ */
 
 const DEVICE_KEY = 'jotlift.device';
 
@@ -561,39 +670,92 @@ function deviceId() {
   }
 }
 
-/**
- * Push one edited entity. `entity` is a materialised row, which carries the
- * change it came from on `__change`, so the schema version is the one the app
- * stamped rather than a number this page invented.
- */
-async function pushEntity(table, entity, changes) {
-  const source = entity.__change;
-  const payload = { ...entity, ...changes };
+function ownerId() {
+  // Every row the feed carries names its owner; fall back to the token's user.
+  return state.rows.find((r) => r.payload?.ownerId)?.payload.ownerId ?? state.user?.id;
+}
+
+/** The sync-kit values every new row carries (repositories/internal.ts). */
+function newStamps() {
+  const ts = Date.now();
+  return {
+    id: crypto.randomUUID(),
+    ownerId: ownerId(),
+    hlc: api.mintHlc(deviceId()),
+    deviceId: deviceId(),
+    deletedAt: null,
+    createdAt: ts,
+    updatedAt: ts,
+  };
+}
+
+/** The values re-stamped on every update. */
+function updateStamps() {
+  return { hlc: api.mintHlc(deviceId()), deviceId: deviceId(), updatedAt: Date.now() };
+}
+
+/** An envelope for one row. `deleted` follows deletedAt, as the app's does. */
+function envelope(table, payload) {
+  return {
+    owner_id: payload.ownerId ?? ownerId(),
+    table,
+    id: payload.id,
+    hlc: payload.hlc,
+    deleted: payload.deletedAt != null,
+    schema_version: state.model.schemaVersion,
+    payload,
+  };
+}
+
+/** An edited copy of a materialised entity, without the internal handle. */
+function edited(entity, changes) {
+  const payload = { ...entity, ...changes, ...updateStamps() };
   delete payload.__change;
-  const hlc = api.mintHlc(deviceId());
-  payload.hlc = hlc;
-  payload.updatedAt = Date.now();
-  payload.deviceId = deviceId();
+  return payload;
+}
 
-  const results = await api.push([
-    {
-      owner_id: source.payload.ownerId ?? state.user?.id,
-      table,
-      id: entity.id,
-      hlc,
-      deleted: false,
-      schema_version: source.schema_version,
-      payload,
-    },
-  ]);
+/** A tombstone for a materialised entity (D33). */
+function tombstoned(entity) {
+  const payload = { ...entity, ...updateStamps(), deletedAt: Date.now() };
+  delete payload.__change;
+  return payload;
+}
 
-  const result = results[0]?.result;
-  // 'stale' means an equal-or-newer row already won, which is a settled outcome
-  // rather than a failure: something else edited it more recently.
-  if (result !== 'applied' && result !== 'stale') {
-    throw new api.ApiError(result === 'skew' ? 'server' : 'server');
+/**
+ * Push a batch, then fold it into the feed and rebuild. Returns false and says
+ * so on screen when the relay did not take it, leaving the page as it was.
+ */
+async function commit(envelopes, { failure } = {}) {
+  if (envelopes.length === 0) return true;
+  if (state.entitlement !== 'active' || state.busy) return false;
+
+  state.busy = true;
+  try {
+    const results = await api.push(envelopes);
+    // 'stale' is settled, not failed: something newer already won.
+    const bad = results.find((r) => r.result !== 'applied' && r.result !== 'stale');
+    if (bad) throw new api.ApiError('server');
+
+    for (const e of envelopes) {
+      state.rows.push({
+        entity_table: e.table,
+        entity_id: e.id,
+        hlc: e.hlc,
+        deleted: e.deleted,
+        schema_version: e.schema_version,
+        payload: e.payload,
+      });
+    }
+    state.model = buildModel(materialise(state.rows), { cutoff: state.cutoff ?? Infinity });
+    state.weightStepMilli = state.model.weightStepMilli;
+    state.busy = false;
+    return true;
+  } catch {
+    state.busy = false;
+    state.message = failure || 'We could not save that. Nothing changed.';
+    render();
+    return false;
   }
-  return result;
 }
 
 function flash(selector, text) {
@@ -603,9 +765,10 @@ function flash(selector, text) {
   node.hidden = false;
 }
 
-/** The one weight step. Unit-free: it is how far a button moves the number on
- *  screen, so it is never converted between kg and lb. 0.5 increments, 0.5 to
- *  999. Changing it never rewrites a weight already logged. */
+/* ---------------------------------------------------------- the weight step */
+
+/** One value for every + and - on every weight field, the same number in kg and
+ *  in lb. 0.5 increments, 0.5 to 999. Changing it never rewrites a logged set. */
 async function changeWeightStep(delta) {
   if (state.entitlement !== 'active' || state.busy) return;
   const settings = state.model.settings;
@@ -619,56 +782,289 @@ async function changeWeightStep(delta) {
   const next = Math.min(999, Math.max(0.5, Math.round((current + delta) * 100) / 100));
   if (next === current) return;
 
-  const previous = state.weightStepMilli;
-  state.weightStepMilli = toMilli(next);
-  state.busy = true;
+  const ok = await commit(
+    [envelope('settings', edited(settings, { weightStepMilli: toMilli(next) }))],
+    { failure: 'We could not save the weight step. Nothing changed.' },
+  );
+  if (!ok) return;
   render();
-
-  try {
-    await pushEntity('settings', settings, { weightStepMilli: state.weightStepMilli });
-    settings.weightStepMilli = state.weightStepMilli;
-    state.model.weightStepMilli = state.weightStepMilli;
-    state.busy = false;
-    render();
-    flash('[data-step-saved]', `Weight step saved. Every device steps by ${next} now.`);
-  } catch {
-    // Put the number back rather than leaving a value on screen that the server
-    // never took.
-    state.weightStepMilli = previous;
-    state.busy = false;
-    state.message = 'We could not save the weight step. Nothing changed.';
-    render();
-  }
+  flash('[data-step-saved]', `Weight step saved. Every device steps by ${next} now.`);
 }
 
-async function saveExerciseName() {
-  if (state.entitlement !== 'active' || state.busy) return;
-  const input = root.querySelector('[data-exercise-name]');
-  if (!input) return;
-  const name = input.value.trim();
-  if (!name) return;
+/* ------------------------------------------------------------- exercises */
 
-  const exercise = state.model.exercises.find((e) => e.id === state.selectedExercise);
-  if (!exercise || exercise.isBuiltin) return;
-  if (name === exercise.name) return;
+/** Read the open exercise form. Uncontrolled fields, so nothing re-renders
+ *  while the reader types and the caret never moves. */
+function readExerciseForm(scope) {
+  const get = (name) => scope.querySelector(`[data-field="${name}"]`);
+  return {
+    name: get('name')?.value.trim() || '',
+    categoryId: get('category')?.value || '',
+    equipmentType: get('equipment')?.value || 'barbell',
+    bodyweightSubtype: get('subtype')?.value || 'pure',
+  };
+}
 
-  state.busy = true;
-  try {
-    await pushEntity('exercises', exercise, {
-      name,
-      // The normalised name is what create-time dedup matches on, so it moves
-      // with the name rather than being left pointing at the old one.
-      nameNormalized: name.toLowerCase().replace(/\s+/g, ' ').trim(),
-    });
-    exercise.name = name;
-    state.busy = false;
-    render();
-    flash('[data-exercise-saved]', 'Saved. Your phone picks it up on the next sync.');
-  } catch {
-    state.busy = false;
-    state.message = 'We could not save that name. Nothing changed.';
-    render();
+/** The link rows that file an exercise under a muscle. Re-filing tombstones the
+ *  old row and writes a new one; the relay resolves the pair on its own unique
+ *  tuple (owner, exercise, category), so a repeat never collides. */
+function categoryEnvelopes(exerciseId, categoryId) {
+  const out = [];
+  const existing = state.model.categoryLinkOf.get(exerciseId);
+  if (existing && existing.categoryId === categoryId) return out;
+  if (existing) out.push(envelope('exercise_categories', tombstoned(existing)));
+  if (categoryId) {
+    out.push(envelope('exercise_categories', { ...newStamps(), exerciseId, categoryId }));
   }
+  return out;
+}
+
+async function saveExercise(id) {
+  const scope = root.querySelector(`[data-exercise-form="${CSS.escape(id)}"]`);
+  const exercise = state.model.exercises.find((e) => e.id === id);
+  if (!scope || !exercise) return;
+
+  const form = readExerciseForm(scope);
+  if (!form.name) {
+    state.message = 'An exercise needs a name.';
+    render();
+    return;
+  }
+
+  const changes = {
+    name: form.name,
+    nameNormalized: normalizeName(form.name),
+    equipmentType: form.equipmentType,
+    // Only bodyweight carries a subtype; anything else clears it.
+    bodyweightSubtype: form.equipmentType === 'bodyweight' ? form.bodyweightSubtype : null,
+    // D60 amendment: the first edit graduates a built-in to the reader's own
+    // version. Same id, so its history, rules and filing all come with it.
+    isBuiltin: 0,
+  };
+
+  const ok = await commit([
+    envelope('exercises', edited(exercise, changes)),
+    ...categoryEnvelopes(id, form.categoryId),
+  ]);
+  if (!ok) return;
+  state.selectedExercise = null;
+  render();
+  flash('[data-exercise-saved]', `Saved ${form.name}. Your phone picks it up on the next sync.`);
+}
+
+async function createExercise() {
+  const scope = root.querySelector('[data-exercise-create]');
+  if (!scope) return;
+  const form = readExerciseForm(scope);
+  if (!form.name) {
+    state.message = 'An exercise needs a name.';
+    render();
+    return;
+  }
+
+  const row = {
+    ...newStamps(),
+    name: form.name,
+    nameNormalized: normalizeName(form.name),
+    equipmentType: form.equipmentType,
+    bodyweightSubtype: form.equipmentType === 'bodyweight' ? form.bodyweightSubtype : null,
+    unit: state.model.displayUnit,
+    // The step follows the equipment, and bodyweight is rep-only (null).
+    incrementMilli: defaultIncrementMilli(form.equipmentType),
+    isBuiltin: 0,
+  };
+
+  const ok = await commit([
+    envelope('exercises', row),
+    ...(form.categoryId
+      ? [envelope('exercise_categories', { ...newStamps(), exerciseId: row.id, categoryId: form.categoryId })]
+      : []),
+  ]);
+  if (!ok) return;
+  state.creatingExercise = false;
+  state.exerciseQuery = '';
+  state.selectedExercise = null;
+  render();
+  flash('[data-exercise-saved]', `Added ${form.name}.`);
+}
+
+async function deleteExercise(id) {
+  const exercise = state.model.exercises.find((e) => e.id === id);
+  if (!exercise) return;
+  const ok = await commit([envelope('exercises', tombstoned(exercise))]);
+  if (!ok) return;
+  state.selectedExercise = null;
+  render();
+  flash('[data-exercise-saved]', `Deleted ${exercise.name}. Every workout you logged with it is still there.`);
+}
+
+/* -------------------------------------------------------------- routines */
+
+/**
+ * Read the routine's uncontrolled cells into a pending patch per row.
+ *
+ * A structural change (add, remove, reorder) COMMITS what has been typed in the
+ * same batch, rather than dropping it. It has to: a successful push rebuilds the
+ * model from the feed, so anything held only in the DOM or only on the in-memory
+ * object is gone the moment anything else is saved. Carrying the edit into the
+ * same push is the one version of this that cannot lose a keystroke.
+ *
+ * The patch is kept SEPARATE from the row rather than merged into it here, so a
+ * reorder and a target edit on the same row become ONE envelope. Two envelopes
+ * for one entity in a batch would settle by HLC, and the loser's fields would
+ * silently vanish.
+ */
+function harvestRoutine() {
+  const detail = root.querySelector('[data-routine-detail]');
+  if (!detail) return null;
+  const routine = state.model.routines.find((r) => r.id === detail.dataset.routineDetail);
+  if (!routine) return null;
+
+  const nameField = detail.querySelector('[data-routine-name]');
+  routine.pendingName = nameField ? nameField.value.trim() || routine.name : routine.name;
+
+  for (const rowEl of detail.querySelectorAll('[data-routine-item]')) {
+    const item = routine.items.find((i) => i.id === rowEl.dataset.routineItem);
+    if (!item) continue;
+    const setsText = rowEl.querySelector('[data-item-field="sets"]')?.value.trim() ?? '';
+    const sets = setsText === '' ? null : Math.min(99, Math.max(0, Number(setsText) || 0)) || null;
+    // An unparseable rep box keeps whatever the row already had, rather than
+    // quietly clearing a target because of a typo.
+    const reps = parseReps(rowEl.querySelector('[data-item-field="reps"]')?.value ?? '');
+    item.pending = {
+      targetSets: sets,
+      targetRepsMin: reps ? reps.min : item.repsMin,
+      targetRepsMax: reps ? reps.max : item.repsMax,
+    };
+  }
+  return routine;
+}
+
+/** One envelope for a routine row: its stored form, plus anything typed into it,
+ *  plus whatever this action changes. Merged, so a row is written once. */
+function itemEnvelope(item, extra = {}) {
+  return envelope('routine_exercises', edited(item.raw, { ...(item.pending || {}), ...extra }));
+}
+
+/** True when the row already holds these values, so it need not be written. */
+function itemUnchanged(item, extra = {}) {
+  const next = { ...(item.pending || {}), ...extra };
+  return Object.entries(next).every(([k, v]) => item.raw[k] === v);
+}
+
+/** The routine's own row, when its name has been typed over. */
+function routineNameEnvelopes(routine) {
+  const name = routine.pendingName ?? routine.name;
+  if (!name || name === routine.raw.name) return [];
+  return [envelope('routines', edited(routine.raw, { name }))];
+}
+
+/** Every pending row edit that is not already stored. */
+function pendingItemEnvelopes(routine, skipId = null) {
+  return routine.items
+    .filter((i) => i.id !== skipId && i.pending && !itemUnchanged(i))
+    .map((i) => itemEnvelope(i));
+}
+
+async function createRoutine() {
+  const row = { ...newStamps(), name: 'New routine' };
+  const ok = await commit([envelope('routines', row)]);
+  if (!ok) return;
+  state.selectedRoutine = row.id;
+  render();
+  flash('[data-routine-saved]', 'Routine created. Name it and add exercises.');
+}
+
+async function saveRoutine(id) {
+  const routine = harvestRoutine();
+  if (!routine || routine.id !== id) return;
+
+  const envelopes = [...routineNameEnvelopes(routine), ...pendingItemEnvelopes(routine)];
+  if (envelopes.length === 0) {
+    flash('[data-routine-saved]', 'Nothing to save.');
+    return;
+  }
+  const ok = await commit(envelopes);
+  if (!ok) return;
+  render();
+  flash('[data-routine-saved]', `Saved ${routine.pendingName ?? routine.name}. Start it on your phone.`);
+}
+
+async function addRoutineExercise() {
+  const routine = harvestRoutine();
+  const pick = root.querySelector('[data-routine-add-pick]');
+  if (!routine || !pick?.value) return;
+
+  const row = {
+    ...newStamps(),
+    routineId: routine.id,
+    exerciseId: pick.value,
+    // At the end of the order, which is where an added thing goes.
+    orderIndex: routine.items.length,
+    targetSets: null,
+    targetRepsMin: null,
+    targetRepsMax: null,
+    supersetGroupId: null,
+    perSide: 0,
+  };
+  const ok = await commit([
+    ...routineNameEnvelopes(routine),
+    ...pendingItemEnvelopes(routine),
+    envelope('routine_exercises', row),
+  ]);
+  if (!ok) return;
+  render();
+}
+
+async function removeRoutineItem(itemId) {
+  const routine = harvestRoutine();
+  const item = routine?.items.find((i) => i.id === itemId);
+  if (!item) return;
+
+  // Removing one leaves a hole in the order, so the rest close up behind it.
+  const rest = routine.items.filter((i) => i.id !== itemId);
+  const ok = await commit([
+    ...routineNameEnvelopes(routine),
+    envelope('routine_exercises', tombstoned(item.raw)),
+    ...rest
+      .map((i, index) => (itemUnchanged(i, { orderIndex: index }) ? null : itemEnvelope(i, { orderIndex: index })))
+      .filter(Boolean),
+  ]);
+  if (!ok) return;
+  render();
+}
+
+async function moveRoutineItem(itemId, direction) {
+  const routine = harvestRoutine();
+  if (!routine) return;
+  const from = routine.items.findIndex((i) => i.id === itemId);
+  const to = direction === 'up' ? from - 1 : from + 1;
+  if (from < 0 || to < 0 || to >= routine.items.length) return;
+
+  const order = routine.items.slice();
+  [order[from], order[to]] = [order[to], order[from]];
+
+  const ok = await commit([
+    ...routineNameEnvelopes(routine),
+    ...order
+      .map((i, index) => (itemUnchanged(i, { orderIndex: index }) ? null : itemEnvelope(i, { orderIndex: index })))
+      .filter(Boolean),
+  ]);
+  if (!ok) return;
+  render();
+}
+
+async function deleteRoutine(id) {
+  const routine = state.model.routines.find((r) => r.id === id);
+  if (!routine) return;
+  const ok = await commit([
+    envelope('routines', tombstoned(routine.raw)),
+    ...routine.items.map((i) => envelope('routine_exercises', tombstoned(i.raw))),
+  ]);
+  if (!ok) return;
+  state.selectedRoutine = null;
+  render();
+  flash('[data-routine-saved]', `Deleted ${routine.name}.`);
 }
 
 /* ================================================================== export */

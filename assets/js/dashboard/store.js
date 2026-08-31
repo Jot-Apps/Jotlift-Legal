@@ -74,15 +74,33 @@ function group(map, key, value) {
  * the log carries on: every session, series and best stops there.
  */
 export function buildModel(tables, { cutoff = Infinity } = {}) {
+  // The schema version the app last stamped. A row this page writes echoes it
+  // rather than inventing one, so it never claims a version nothing produced.
+  let schemaVersion = 0;
+  for (const rows of Object.values(tables)) {
+    for (const row of rows) {
+      const v = row.__change?.schema_version;
+      if (typeof v === 'number' && v > schemaVersion) schemaVersion = v;
+    }
+  }
+
   const exercises = at(tables, 'exercises');
   const exercisesById = new Map(exercises.map((e) => [e.id, e]));
 
-  const categories = at(tables, 'categories');
+  const categories = at(tables, 'categories')
+    .slice()
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   const categoriesById = new Map(categories.map((c) => [c.id, c]));
+
+  // An exercise's filing, kept two ways: the NAME for the group headings, and
+  // the LINK ROW itself, because re-filing one has to tombstone the row that
+  // put it where it was.
   const categoryOf = new Map();
+  const categoryLinkOf = new Map();
   for (const link of at(tables, 'exercise_categories')) {
     if (!categoryOf.has(link.exerciseId) && categoriesById.has(link.categoryId)) {
       categoryOf.set(link.exerciseId, categoriesById.get(link.categoryId).name);
+      categoryLinkOf.set(link.exerciseId, link);
     }
   }
 
@@ -299,9 +317,13 @@ export function buildModel(tables, { cutoff = Infinity } = {}) {
   }
 
   return {
+    schemaVersion,
     exercises,
     exercisesById,
+    categories,
+    categoriesById,
     categoryOf,
+    categoryLinkOf,
     library,
     sessions,
     weeks,

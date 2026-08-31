@@ -22,6 +22,9 @@ import {
   weekLabel,
   equipmentLabel,
   fromMilli,
+  EQUIPMENT_TYPES,
+  BODYWEIGHT_SUBTYPES,
+  BODYWEIGHT_SUBTYPE_LABELS,
 } from './domain.js';
 
 export function esc(text) {
@@ -389,21 +392,31 @@ function renderChart(series, metric, unit, render, state, exercise, repOnly) {
     })
     .join('');
 
-  const guide =
-    pickedIndex != null
-      ? `<span class="chart-guide" style="left:${pctX(series[pickedIndex].startedAt)}"></span>
-         <span class="chart-dot" style="left:${pctX(series[pickedIndex].startedAt)};top:${py(ys[pickedIndex]).toFixed(1)}px"></span>`
-      : '';
+  /* The guide and the dot are ALWAYS in the DOM, hidden until something is
+   * picked, and each hit target carries its own geometry. Picking then moves
+   * them with two style writes instead of re-rendering the page.
+   *
+   * That is not a micro-optimisation. Re-rendering replaced the scroller on
+   * every pointer move, and a fresh element starts at scrollLeft 0, so reading
+   * a point threw the reader back to the start of their own history. */
+  const guide = `
+    <span class="chart-guide" data-chart-guide${pickedIndex == null ? ' hidden' : ''}
+          style="left:${pickedIndex == null ? '0' : pctX(series[pickedIndex].startedAt)}"></span>
+    <span class="chart-dot" data-chart-pick${pickedIndex == null ? ' hidden' : ''}
+          style="left:${pickedIndex == null ? '0' : pctX(series[pickedIndex].startedAt)};top:${
+            pickedIndex == null ? '0' : py(ys[pickedIndex]).toFixed(1) + 'px'
+          }"></span>`;
 
-  const readout =
-    pickedIndex != null
-      ? `${metricText(ys[pickedIndex], metric, render)} on ${shortDate(series[pickedIndex].startedAt)}`
-      : '';
+  const readoutFor = (i) => `${metricText(ys[i], metric, render)} on ${shortDate(series[i].startedAt)}`;
+  const readout = pickedIndex != null ? readoutFor(pickedIndex) : '';
 
   const hits = series
     .map(
       (p, i) =>
-        `<button class="chart-hit" type="button" data-point="${i}" style="left:${pctX(p.startedAt)}" aria-label="${esc(metricText(ys[i], metric, render))} on ${esc(shortDate(p.startedAt))}"></button>`,
+        `<button class="chart-hit" type="button" data-point="${i}"` +
+        ` data-left="${pctX(p.startedAt)}" data-top="${py(ys[i]).toFixed(1)}px"` +
+        ` data-readout="${esc(readoutFor(i))}"` +
+        ` style="left:${pctX(p.startedAt)}" aria-label="${esc(readoutFor(i))}"></button>`,
     )
     .join('');
 
@@ -412,7 +425,7 @@ function renderChart(series, metric, unit, render, state, exercise, repOnly) {
     ` ${series.length} sessions from ${shortDate(x0)} to ${shortDate(x1)}`;
 
   return `
-    <p class="chart-readout">${esc(readout)}</p>
+    <p class="chart-readout" data-chart-readout>${esc(readout)}</p>
     <div class="chart-frame">
       <div class="chart-scroll" data-chart-scroll>
         <div class="chart-plot" style="width:max(100%, ${plotPx}px)">
@@ -509,30 +522,46 @@ export function renderExercises(model, state) {
     }))
     .filter((g) => g.items.length);
 
-  const all = model.library.flatMap((g) => g.items);
-  const selected = all.find((e) => e.id === state.selectedExercise) || all[0] || null;
+  const editable = state.entitlement === 'active';
+  const open = state.selectedExercise;
 
+  // THE EDITOR OPENS UNDER THE ROW IT BELONGS TO, not at the foot of the page.
+  // A panel far from the thing it edits makes the reader hunt for what they just
+  // clicked, and on a long library it is off screen entirely.
   const list = groups
     .map(
       (g) => `
       <section class="ex-group">
         <h3>${esc(g.label)}</h3>
         <div class="ex-list">
-          ${g.items.map((e, i) => renderExerciseRow(e, i, selected, model, render)).join('')}
+          ${g.items
+            .map((e, i) => {
+              const row = renderExerciseRow(e, i, open, model, render);
+              return e.id === open
+                ? row + renderExerciseDetail(e, model, state, render, editable)
+                : row;
+            })
+            .join('')}
         </div>
       </section>`,
     )
     .join('');
 
+  const creating = state.creatingExercise
+    ? renderExerciseCreate(model, state)
+    : '';
+
   const empty =
-    groups.length === 0
-      ? `<p class="ex-empty">No matches. Create &ldquo;${esc(state.exerciseQuery || '')}&rdquo;?</p>`
+    groups.length === 0 && !state.creatingExercise
+      ? `<p class="ex-empty">No matches${query ? ` for &ldquo;${esc(state.exerciseQuery)}&rdquo;` : ''}.${
+          editable ? ' <button class="linkish" type="button" data-add-exercise>Add it</button>' : ''
+        }</p>`
       : '';
 
   return `
     <div class="tab-head" style="margin-bottom:14px">
       <h2>Exercises</h2>
-      ${state.entitlement === 'active' ? '<button class="btn btn--sm" type="button" data-add-exercise>Add exercise</button>' : ''}
+      ${editable ? '<button class="btn btn--sm" type="button" data-add-exercise>Add exercise</button>' : ''}
     </div>
 
     <div style="max-width:340px;margin-bottom:20px">
@@ -545,28 +574,28 @@ export function renderExercises(model, state) {
       </label>
     </div>
 
+    ${creating}
     ${list}
     ${empty}
-    ${selected ? renderExerciseDetail(selected, model, state, render) : ''}`;
+    <p class="notice notice--success" data-exercise-saved hidden style="margin-top:16px"></p>`;
 }
 
-function renderExerciseRow(exercise, index, selected, model, render) {
-  const isSelected = selected && exercise.id === selected.id;
+function renderExerciseRow(exercise, index, openId, model, render) {
+  const isOpen = exercise.id === openId;
   const best = bestLine(exercise, model, render);
   const lastDone = model.lastDoneByExercise.get(exercise.id);
-  const custom = !exercise.isBuiltin;
 
   return `
-    <button class="ex-row" type="button" data-exercise="${esc(exercise.id)}" aria-selected="${!!isSelected}">
+    <button class="ex-row" type="button" data-exercise="${esc(exercise.id)}" aria-expanded="${isOpen}" aria-selected="${isOpen}">
       ${index > 0 ? '<span class="divider-60"></span>' : ''}
       ${tile('dumbbell', 32)}
       <span class="ex-row__main">
         <span class="ex-row__name">${esc(exercise.name)}</span>
-        ${custom ? '<span class="ex-row__own">Your own</span>' : ''}
+        ${exercise.isBuiltin ? '' : '<span class="ex-row__own">Your own</span>'}
       </span>
       <span class="ex-row__best">${esc(best)}</span>
       <span class="ex-row__last">${lastDone ? esc(shortDate(lastDone)) : ''}</span>
-      <span class="ex-row__chevron">${icon('chevronR', 18)}</span>
+      <span class="ex-row__chevron">${icon(isOpen ? 'chevronD' : 'chevronR', 18)}</span>
     </button>`;
 }
 
@@ -592,60 +621,154 @@ function bestLine(exercise, model, render) {
   return `${render.text(best.weightMilli, unit)} × ${best.reps}`;
 }
 
-function renderExerciseDetail(exercise, model, state, render) {
-  const custom = !exercise.isBuiltin;
-  const editable = custom && state.entitlement === 'active';
+function equipmentOptions(selected) {
+  return EQUIPMENT_TYPES.map(
+    (t) => `<option value="${t}"${t === selected ? ' selected' : ''}>${esc(equipmentLabel(t))}</option>`,
+  ).join('');
+}
+
+function categoryOptions(model, selectedId) {
+  return (
+    `<option value=""${selectedId ? '' : ' selected'}>Not filed</option>` +
+    model.categories
+      .map((c) => `<option value="${esc(c.id)}"${c.id === selectedId ? ' selected' : ''}>${esc(c.name)}</option>`)
+      .join('')
+  );
+}
+
+function subtypeOptions(selected) {
+  return BODYWEIGHT_SUBTYPES.map(
+    (t) => `<option value="${t}"${t === selected ? ' selected' : ''}>${esc(BODYWEIGHT_SUBTYPE_LABELS[t])}</option>`,
+  ).join('');
+}
+
+/** The panel that opens under a row. Uncontrolled fields, read on save, so
+ *  typing never re-renders and never loses the caret. */
+function renderExerciseDetail(exercise, model, state, render, editable) {
   const repOnly = model.isRepOnly(exercise);
   const logged = model.lastDoneByExercise.get(exercise.id);
+  const link = model.categoryLinkOf.get(exercise.id);
+  const isBodyweight = exercise.equipmentType === 'bodyweight';
 
-  const builtin = `
-    <div class="ex-facts">
-      <div><p>Equipment</p><p>${esc(equipmentLabel(exercise.equipmentType))}</p></div>
-      <div><p>Unit</p><p>${esc(exercise.unit || 'kg')}</p></div>
-      <div><p>Logged in</p><p>${repOnly ? 'Reps' : 'Weight and reps'}</p></div>
-    </div>
-    <p style="margin:0;font-size:15px;line-height:1.55" class="quiet">This one comes with Jotlift, so its details are fixed. To change how it behaves, add your own version and log against that instead.</p>`;
-
-  const form = `
-    <div class="ex-form">
-      <label class="field">
-        <span class="field__label">Name</span>
-        <span class="field__box"><input type="text" data-exercise-name value="${esc(exercise.name)}"></span>
-      </label>
-      <label class="field">
-        <span class="field__label">Equipment</span>
-        <span class="field__box"><input type="text" data-exercise-equipment value="${esc(equipmentLabel(exercise.equipmentType))}" readonly></span>
-      </label>
-    </div>
-    ${repOnly ? '<p style="margin:16px 0 0;font-size:15px" class="quiet">Logged in reps. Added load is recorded per set.</p>' : ''}
-    <div class="ex-actions">
-      <div class="ex-actions__left">
-        <button class="btn" type="button" data-exercise-save>Save</button>
-      </div>
-    </div>
-    <p style="margin:14px 0 0;font-size:14px" class="quiet">Renaming keeps every workout you logged with it. Merging and deleting an exercise happen on your phone.</p>`;
-
-  const lapsed = custom && state.entitlement === 'lapsed'
-    ? '<p style="margin:16px 0 0;font-size:15px" class="quiet">Editing is paused while your subscription is lapsed. Your exercises and their history are all still here.</p>'
-    : '';
+  if (!editable) {
+    return `
+      <div class="ex-panel">
+        <div class="ex-facts">
+          <div><p>Equipment</p><p>${esc(equipmentLabel(exercise.equipmentType))}</p></div>
+          <div><p>Muscle</p><p>${esc(model.categoryOf.get(exercise.id) || 'Not filed')}</p></div>
+          <div><p>Unit</p><p>${esc(exercise.unit || 'kg')}</p></div>
+          <div><p>Logged in</p><p>${repOnly ? 'Reps' : 'Weight and reps'}</p></div>
+        </div>
+        <p style="margin:0;font-size:15px;line-height:1.55" class="quiet">${
+          state.entitlement === 'lapsed'
+            ? 'Editing is paused while your subscription is lapsed. Your exercises and their history are all still here.'
+            : 'Subscribe to edit your exercises here.'
+        }</p>
+      </div>`;
+  }
 
   return `
-    <div class="ex-detail">
-      <h3>${custom ? 'Edit exercise' : 'Exercise details'}</h3>
-      <p class="ex-detail__name">${esc(exercise.name)}${logged ? ` · last logged ${esc(shortDate(logged))}` : ''}</p>
-      ${editable ? form : builtin}
-      ${lapsed}
-      <p class="notice notice--success" data-exercise-saved hidden style="margin:16px 0 0"></p>
+    <div class="ex-panel" data-exercise-form="${esc(exercise.id)}">
+      <div class="ex-form">
+        <label class="field">
+          <span class="field__label">Name</span>
+          <span class="field__box"><input type="text" data-field="name" value="${esc(exercise.name)}"></span>
+        </label>
+        <label class="field">
+          <span class="field__label">Muscle</span>
+          <span class="field__box"><select data-field="category">${categoryOptions(model, link ? link.categoryId : '')}</select></span>
+        </label>
+        <label class="field">
+          <span class="field__label">Equipment</span>
+          <span class="field__box"><select data-field="equipment" data-equipment-select>${equipmentOptions(exercise.equipmentType)}</select></span>
+        </label>
+        <label class="field" data-subtype-field${isBodyweight ? '' : ' hidden'}>
+          <span class="field__label">Loaded by</span>
+          <span class="field__box"><select data-field="subtype">${subtypeOptions(exercise.bodyweightSubtype || 'pure')}</select></span>
+        </label>
+      </div>
+
+      <p class="ex-panel__note">
+        ${repOnly ? 'Logged in reps. Added load is recorded per set. ' : ''}Logged in ${esc(exercise.unit || 'kg')}${
+          logged ? `, last on ${esc(shortDate(logged))}` : ''
+        }. The unit is changed on your phone, because switching it converts every weight you have logged.
+      </p>
+      ${
+        exercise.isBuiltin
+          ? '<p class="ex-panel__note">This one came with Jotlift. Editing it makes it your own version, keeping its whole history.</p>'
+          : ''
+      }
+
+      <div class="ex-actions">
+        <div class="ex-actions__left">
+          <button class="btn" type="button" data-exercise-save="${esc(exercise.id)}">Save</button>
+          <button class="btn btn--text" type="button" data-exercise-cancel>Cancel</button>
+        </div>
+        ${
+          exercise.isBuiltin
+            ? ''
+            : `<button class="danger-link" type="button" data-exercise-delete="${esc(exercise.id)}">Delete</button>`
+        }
+      </div>
+      ${
+        exercise.isBuiltin
+          ? ''
+          : '<p class="ex-panel__note">Deleting keeps every workout you logged with it.</p>'
+      }
+    </div>`;
+}
+
+/** The new-exercise form, at the top of the list where a new thing belongs. */
+function renderExerciseCreate(model, state) {
+  return `
+    <div class="ex-panel ex-panel--create" data-exercise-create>
+      <h3 style="margin:0 0 16px;font-size:17px;font-weight:600;color:var(--color-text)">New exercise</h3>
+      <div class="ex-form">
+        <label class="field">
+          <span class="field__label">Name</span>
+          <span class="field__box"><input type="text" data-field="name" value="${esc(state.exerciseQuery || '')}" placeholder="Bench press" autofocus></span>
+        </label>
+        <label class="field">
+          <span class="field__label">Muscle</span>
+          <span class="field__box"><select data-field="category">${categoryOptions(model, '')}</select></span>
+        </label>
+        <label class="field">
+          <span class="field__label">Equipment</span>
+          <span class="field__box"><select data-field="equipment" data-equipment-select>${equipmentOptions('barbell')}</select></span>
+        </label>
+        <label class="field" data-subtype-field hidden>
+          <span class="field__label">Loaded by</span>
+          <span class="field__box"><select data-field="subtype">${subtypeOptions('pure')}</select></span>
+        </label>
+      </div>
+      <p class="ex-panel__note">It is logged in ${esc(model.displayUnit)}, and its step follows the equipment. A bodyweight exercise is logged in reps.</p>
+      <div class="ex-actions">
+        <div class="ex-actions__left">
+          <button class="btn" type="button" data-exercise-create-save>Add exercise</button>
+          <button class="btn btn--text" type="button" data-exercise-create-cancel>Cancel</button>
+        </div>
+      </div>
     </div>`;
 }
 
 /* ================================================================= ROUTINES */
 
 export function renderRoutines(model, state) {
+  const editable = state.entitlement === 'active';
+  const intro =
+    'A routine is a named list of exercises in the order you want them. There are no days and nothing is scheduled. Build one here, then start it from your phone whenever you want it.';
+
+  const head = `
+    <div class="tab-head" style="margin-bottom:6px">
+      <h2>Routines</h2>
+      ${editable ? '<button class="btn btn--sm" type="button" data-routine-new>New routine</button>' : ''}
+    </div>
+    <p style="margin:0 0 16px;font-size:15px;max-width:60ch" class="quiet">${intro}</p>`;
+
   if (model.routines.length === 0) {
-    return `
-      <div class="tab-head" style="margin-bottom:6px"><h2>Routines</h2></div>
-      <p style="margin:0 0 16px;font-size:15px;max-width:60ch" class="quiet">A routine is a named list of exercises in the order you want them. There are no days and nothing is scheduled. Build one on your phone and it appears here.</p>`;
+    return `${head}
+      <p class="ex-empty">No routines yet.${editable ? ' Build one here, or on your phone.' : ''}</p>
+      <p class="notice notice--success" data-routine-saved hidden style="margin-top:16px"></p>`;
   }
 
   const selected = model.routines.find((r) => r.id === state.selectedRoutine) || model.routines[0];
@@ -663,44 +786,101 @@ export function renderRoutines(model, state) {
     )
     .join('');
 
-  const rows = selected.items
-    .map(
-      (item, i) => `
-      <div class="routine-table__row">
-        <span class="routine-table__n">${i + 1}</span>
-        <span class="routine-table__name">${esc(item.exercise.name)}</span>
-        <span class="routine-table__sets">${item.targetSets ?? ''}</span>
-        <span class="routine-table__reps${repsRange(item) === 'Any' ? ' routine-table__reps--any' : ''}">${esc(repsRange(item))}</span>
-        <span class="routine-table__grip">${icon('grip', 16)}</span>
-      </div>`,
-    )
+  return `${head}
+    <div class="routine-cards">${cards}</div>
+    ${renderRoutineDetail(selected, model, state, editable)}
+    <p class="notice notice--success" data-routine-saved hidden style="margin-top:16px"></p>`;
+}
+
+function renderRoutineDetail(routine, model, state, editable) {
+  const rows = routine.items
+    .map((item, i) => renderRoutineRow(item, i, routine.items.length, editable))
+    .join('');
+
+  const addable = model.exercises
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`)
     .join('');
 
   return `
-    <div class="tab-head" style="margin-bottom:6px">
-      <h2>Routines</h2>
-    </div>
-    <p style="margin:0 0 16px;font-size:15px;max-width:60ch" class="quiet">A routine is a named list of exercises in the order you want them. There are no days and nothing is scheduled. Build one here, then start it from your phone whenever you want it.</p>
-
-    <div class="routine-cards">${cards}</div>
-
-    <div class="routine-detail">
+    <div class="routine-detail" data-routine-detail="${esc(routine.id)}">
       <div class="routine-detail__head">
-        <h3>${esc(selected.name)}</h3>
-        <span style="font-size:14px" class="decorative">Start it on your phone</span>
+        ${
+          editable
+            ? `<label class="field" style="max-width:340px">
+                 <span class="field__label">Routine name</span>
+                 <span class="field__box"><input type="text" data-routine-name value="${esc(routine.name)}"></span>
+               </label>`
+            : `<h3>${esc(routine.name)}</h3>`
+        }
+        ${editable ? '<span style="font-size:14px" class="decorative">Use the arrows to reorder</span>' : '<span style="font-size:14px" class="decorative">Start it on your phone</span>'}
       </div>
+
       <div class="routine-table">
         <div class="routine-table__row routine-table__head">
           <span></span><span>Exercise</span><span style="text-align:right">Sets</span><span style="text-align:right">Reps</span><span></span>
         </div>
-        ${rows}
+        ${rows || '<div class="routine-table__row"><span></span><span class="routine-table__name quiet">No exercises yet.</span><span></span><span></span><span></span></div>'}
       </div>
+
       <p style="margin:14px 0 0;font-size:14px" class="quiet">Sets and reps are optional. Leave them blank and the routine just sets the order.</p>
+
+      ${
+        editable
+          ? `<div class="routine-add">
+               <label class="field" style="max-width:280px">
+                 <span class="sr-only">Exercise to add</span>
+                 <span class="field__box"><select data-routine-add-pick>${addable}</select></span>
+               </label>
+               <button class="btn btn--secondary" type="button" data-routine-add>Add exercise</button>
+             </div>
+             <div class="ex-actions" style="margin-top:18px">
+               <div class="ex-actions__left">
+                 <button class="btn" type="button" data-routine-save="${esc(routine.id)}">Save routine</button>
+               </div>
+               <button class="danger-link" type="button" data-routine-delete="${esc(routine.id)}">Delete routine</button>
+             </div>`
+          : ''
+      }
       ${
         state.entitlement === 'lapsed'
           ? '<p style="margin:18px 0 0;font-size:15px" class="quiet">Routines are read only while your subscription is lapsed. Nothing has been deleted, and they work again as soon as you resubscribe.</p>'
           : ''
       }
+    </div>`;
+}
+
+function renderRoutineRow(item, index, total, editable) {
+  if (!editable) {
+    return `
+      <div class="routine-table__row">
+        <span class="routine-table__n">${index + 1}</span>
+        <span class="routine-table__name">${esc(item.exercise.name)}</span>
+        <span class="routine-table__sets">${item.targetSets ?? ''}</span>
+        <span class="routine-table__reps${repsRange(item) === 'Any' ? ' routine-table__reps--any' : ''}">${esc(repsRange(item))}</span>
+        <span></span>
+      </div>`;
+  }
+
+  return `
+    <div class="routine-table__row" data-routine-item="${esc(item.id)}">
+      <span class="routine-table__n">${index + 1}</span>
+      <span class="routine-table__name">${esc(item.exercise.name)}</span>
+      <span class="routine-table__sets">
+        <input class="cell-input" type="number" min="0" max="99" inputmode="numeric"
+               data-item-field="sets" value="${item.targetSets ?? ''}" aria-label="Sets for ${esc(item.exercise.name)}">
+      </span>
+      <span class="routine-table__reps">
+        <input class="cell-input" type="text" inputmode="numeric" placeholder="Any"
+               data-item-field="reps" value="${esc(repsValue(item))}"
+               aria-label="Reps for ${esc(item.exercise.name)}, a number or a range like 6-8">
+      </span>
+      <span class="routine-table__tools">
+        <button class="icon-btn" type="button" data-routine-move="up" ${index === 0 ? 'disabled' : ''} aria-label="Move ${esc(item.exercise.name)} up">${icon('chevronD', 15)}</button>
+        <button class="icon-btn" type="button" data-routine-move="down" ${index === total - 1 ? 'disabled' : ''} aria-label="Move ${esc(item.exercise.name)} down">${icon('chevronD', 15)}</button>
+        <button class="icon-btn icon-btn--danger" type="button" data-routine-remove aria-label="Remove ${esc(item.exercise.name)}">${icon('plus', 15)}</button>
+      </span>
     </div>`;
 }
 
@@ -710,6 +890,29 @@ function repsRange(item) {
   if (repsMin == null && repsMax == null) return 'Any';
   if (repsMin != null && repsMax != null) return repsMin === repsMax ? String(repsMin) : `${repsMin} to ${repsMax}`;
   return String(repsMin ?? repsMax);
+}
+
+/** The same range as an editable value: "8" or "6-8", blank for any. */
+function repsValue(item) {
+  const { repsMin, repsMax } = item;
+  if (repsMin == null && repsMax == null) return '';
+  if (repsMin != null && repsMax != null) return repsMin === repsMax ? String(repsMin) : `${repsMin}-${repsMax}`;
+  return String(repsMin ?? repsMax);
+}
+
+/** Read "8" or "6-8" back into a min and a max. Blank means no target. */
+export function parseReps(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return { min: null, max: null };
+  const range = /^(\d{1,3})\s*(?:-|to|–)\s*(\d{1,3})$/i.exec(trimmed);
+  if (range) {
+    const a = Number(range[1]);
+    const b = Number(range[2]);
+    return { min: Math.min(a, b), max: Math.max(a, b) };
+  }
+  const one = /^(\d{1,3})$/.exec(trimmed);
+  if (one) return { min: Number(one[1]), max: Number(one[1]) };
+  return null; // unparseable: the caller keeps what was there
 }
 
 /* =================================================================== EXPORT */

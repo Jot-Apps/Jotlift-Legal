@@ -400,3 +400,41 @@ export function equipmentLabel(type) {
 export function isRepOnly(exercise) {
   return exercise.incrementMilli == null;
 }
+
+/* ============================ src/db/repositories/exercises.ts, catalog/defaults */
+
+/** The equipment an exercise is done on. The order the app lists them in. */
+export const EQUIPMENT_TYPES = ['barbell', 'dumbbell', 'machine', 'cable', 'bodyweight', 'banded', 'other'];
+
+/** Only meaningful when the equipment is bodyweight. */
+export const BODYWEIGHT_SUBTYPES = ['pure', 'weighted', 'assisted'];
+
+export const BODYWEIGHT_SUBTYPE_LABELS = {
+  pure: 'Bodyweight only',
+  weighted: 'Bodyweight plus added load',
+  assisted: 'Assisted',
+};
+
+/** Lowercase, trim, collapse whitespace: the dedup-match form of a name (D60). */
+export function normalizeName(name) {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * The default step per equipment type, in milli of the exercise's native unit.
+ *
+ * ONLY bodyweight is rep-only by default (null): it progresses by reps (D24),
+ * carrying optional added load per set rather than a step of its own. A band
+ * carries a quantified resistance the lifter steps like any other load, so it
+ * is a normal weights-and-reps exercise.
+ */
+export function defaultIncrementMilli(equipmentType) {
+  switch (equipmentType) {
+    case 'barbell': return 2500;
+    case 'dumbbell': return 2000;
+    case 'machine':
+    case 'cable': return 5000;
+    case 'bodyweight': return null;
+    default: return 2500;
+  }
+}
