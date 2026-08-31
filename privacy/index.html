@@ -45,7 +45,7 @@
 
 <main id="main" class="shell-legal prose legal">
   <h1 class="display h-legal">Privacy Policy</h1>
-  <p class="effective">Effective date: 6 July 2026</p>
+  <p class="effective">Effective date: 31 August 2026</p>
 
   <p>Jotlift (ABN 55 482 265 411) is operated by a sole trader based in New South Wales, Australia (&ldquo;Jotlift&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;, &ldquo;our&rdquo;). This policy explains what personal information we handle, why, and the choices you have. You can contact us any time at <a href="mailto:jotliftapp@gmail.com">jotliftapp@gmail.com</a>.</p>
   <p class="gap">We built Jotlift to collect as little as possible and to keep you in control of your data. Most of Jotlift works with no account and nothing leaving your device.</p>
@@ -62,13 +62,22 @@
   <p><strong>Bodyweight and body measurements.</strong> If you record your bodyweight or measurements, this is sensitive health information. We store it only as part of your backup, walled off from everything else. We never analyse it, never use it for advertising, and never include it in usage analytics. It exists only so your own history and volume figures are complete and so you can restore it.</p>
   <p><strong>Purchase and subscription status.</strong> When you subscribe, the purchase is handled by the app store, and we use RevenueCat to confirm and manage your access. We receive your subscription status and the identifiers needed to keep your access correct. We never receive or store your card or bank details. The stores handle payment.</p>
   <p><strong>Usage analytics (opt-in, off by default).</strong> See the &ldquo;Usage analytics&rdquo; section below.</p>
+  <p><strong>Crash and error reports (always on).</strong> See the &ldquo;Crash and error reporting&rdquo; section below.</p>
   <p class="gap"><strong>Technical basics.</strong> To deliver backup, sync, and purchases, our systems process the standard technical information needed to run a network service, such as the request needed to save or restore your data. We keep this to what is necessary to operate the app.</p>
 
   <h2>Usage analytics</h2>
-  <p>Analytics in Jotlift is first-party and in-house. We do not use any third-party analytics or tracking software, and we do not use an advertising identifier. Analytics is opt-in and off by default. If you never turn it on, nothing about your usage leaves your device.</p>
+  <p>Analytics in Jotlift is first-party and in-house. We do not use any third-party analytics or tracking software, and we do not use an advertising identifier. Crash and error reporting is a separate service, works differently, and is described in the next section.</p>
+  <p>Analytics is opt-in and off by default. If you never turn it on, nothing about your usage leaves your device.</p>
   <p>If you turn it on, Jotlift records content-free usage events, for example that a workout was started or finished, that a screen was viewed, or that the paywall was opened. These events tell us which features are used and how people move through the app, so we can improve it. They never include the content of your logs, and never include your bodyweight or measurements.</p>
   <p>These events are tied to a de-identified per-install analytics identifier. This is a random value generated on your device when you first opt in. It is separate from your account, it is not your email or your user id, and it is not used to identify you. We store these events with no path back to your account.</p>
   <p class="gap">You can turn analytics off at any time in Settings, under Privacy. When you turn it off, collection stops immediately and any events still queued on your device are deleted. Usage events that were already sent are kept only in de-identified, aggregate form. Because they are not linked to you, we cannot trace them back to you or remove an individual person&rsquo;s events from them. Your account and backup data are separate, and can always be deleted in full (see &ldquo;Your choices and rights&rdquo; and our <a href="/delete/" style="font-weight:600">account deletion page</a>).</p>
+
+  <h2>Crash and error reporting</h2>
+  <p>Jotlift uses Sentry, a third-party service, to receive a report when the app crashes or hits an error. This is separate from usage analytics and it works differently. It is always on, and it is linked to your account. We use it because we cannot fix a crash we never hear about.</p>
+  <p>A report contains the error and the technical trace of where in the app it happened, basic device and app information such as your device model, operating system version and app version, and a short trail of the network requests the app made just before the error. That trail records only the method, the address and the response status. It never includes the contents of a request, and it never includes your workout data, your bodyweight or your measurements.</p>
+  <p>Reports identify you by your account identifier, which is a random code we generate. They never include your email address.</p>
+  <p>We have turned off the parts of Sentry that would record more. Jotlift does not use session replay, so no recording of your screen is ever made. It does not use performance tracing or profiling, it does not send the app&rsquo;s internal log messages, and it does not record your location. Jotlift never asks for location permission and never reads your device location.</p>
+  <p class="gap">Crash reporting cannot be turned off in the app, because an app that only reports crashes for some people cannot be kept working for everyone. If you would like the reports linked to your account deleted, email us at <a href="mailto:jotliftapp@gmail.com">jotliftapp@gmail.com</a> and we will remove them.</p>
 
   <h2>Advertising</h2>
   <p class="gap">We do not show ads inside Jotlift. If we ever promote Jotlift elsewhere, we build our own promotional material from our own general insight. We do not share your data with any advertising network, we do not use a tracking SDK, and we do not track you across other apps or websites. Because of this, Jotlift does not ask for app-tracking permission.</p>
@@ -78,12 +87,13 @@
   <ul>
     <li>Supabase, for authentication, database storage, and backend functions.</li>
     <li>RevenueCat, for managing your subscription access.</li>
+    <li>Sentry, for crash and error reporting.</li>
     <li>Apple and Google, as the stores that process your purchases and distribute the app.</li>
   </ul>
   <p class="gap">Each handles data under its own terms and security. We do not give any of them your data for their own marketing.</p>
 
   <h2>Where your data is stored</h2>
-  <p class="gap">Your account and backup data are stored on Supabase infrastructure in Sydney, Australia. Some of our providers, including RevenueCat and the app stores, operate overseas, including in the United States, so limited data such as your subscription status may be processed outside Australia. We take reasonable steps to ensure your information is handled consistently with the Australian Privacy Principles wherever it is processed.</p>
+  <p class="gap">Your account and backup data are stored on Supabase infrastructure in Sydney, Australia. Some of our providers, including RevenueCat, Sentry and the app stores, operate overseas, including in the United States, so limited data such as your subscription status and your crash reports may be processed outside Australia. We take reasonable steps to ensure your information is handled consistently with the Australian Privacy Principles wherever it is processed.</p>
 
   <h2>Sensitive information</h2>
   <p class="gap">Bodyweight and body measurements are sensitive health information. We collect them only if you choose to record them, we store them only for your backup, and we use them only to complete your own history and figures. We do not use them for any other purpose. By recording them with a free account or a subscription, you consent to us storing them for backup as described here.</p>
@@ -98,7 +108,8 @@
     <li>ask us to correct it if it is wrong;</li>
     <li>export your data at any time from within the app;</li>
     <li>delete your account and its stored data at any time, in the app or via our <a href="/delete/" style="font-weight:600">account deletion page</a>;</li>
-    <li>turn usage analytics on or off at any time in Settings.</li>
+    <li>turn usage analytics on or off at any time in Settings;</li>
+    <li>ask us to delete the crash and error reports linked to your account.</li>
   </ul>
   <p class="gap">To make a request, email <a href="mailto:jotliftapp@gmail.com">jotliftapp@gmail.com</a>. We will respond within a reasonable time. If you are in Australia and are not satisfied with how we have handled your information, you can contact the Office of the Australian Information Commissioner (OAIC) at <a href="https://www.oaic.gov.au">oaic.gov.au</a>.</p>
 
@@ -107,6 +118,7 @@
     <li>Data on your device stays until you delete it or remove the app.</li>
     <li>Backup and sync data is kept while your account exists, and is deleted when you delete your account.</li>
     <li>Opt-in usage events are kept only in de-identified, aggregate form, as described under &ldquo;Usage analytics&rdquo;.</li>
+    <li>Crash and error reports are kept for a limited period and then deleted automatically. You can ask us to delete the reports linked to your account sooner.</li>
   </ul>
 
   <h2>Security</h2>
