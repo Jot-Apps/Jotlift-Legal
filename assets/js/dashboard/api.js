@@ -1,16 +1,17 @@
 /* The dashboard's whole network surface.
  *
- * Auth is GoTrue over REST; the data goes through the SAME four edge functions
- * the phone uses (`pull`, `push`, `entitlement`, `export`), never straight at
- * the tables. That matters for `push`: the relay validates the HLC against its
- * own clock and settles each envelope applied / stale / rejected, so writing
- * through it is the only way a web edit lands under the same rules a phone edit
- * does.
+ * Auth is GoTrue over REST; the data goes through the SAME edge functions the
+ * phone uses (`entitlement`, `export`, `push`), never straight at the tables.
+ * That is not a preference: `authenticated` holds no SELECT on `changes` or
+ * `entitlements`, so PostgREST cannot read them at all. Every path in is the
+ * relay, running as service_role and scoping each query to the owner it took
+ * from the JWT. It is also what keeps a write honest, since the relay validates
+ * the stamp against its own clock and settles each envelope.
  *
  * The publishable key below is public by design. It identifies the project and
- * grants nothing: row-level security ties every row in `changes` and
- * `entitlements` to `owner_id = auth.uid()`, so a reader only ever sees their
- * own log, and only with their own access token.
+ * grants nothing on its own: the tables are unreachable without a token, and
+ * the relay derives the owner from that token rather than from anything the
+ * caller sends.
  */
 
 export const SUPABASE_URL = 'https://wyvawvpyiuiqfmegflke.supabase.co';
@@ -256,6 +257,22 @@ async function loadUser() {
 
 /* ------------------------------------------------------- the relay endpoints */
 
+/*
+ * The dashboard talks to the SAME edge functions the phone does. It could not
+ * always: those functions sent no CORS headers and answered no preflight, so a
+ * browser's request was blocked before it left the page, and the dashboard could
+ * only report that it had not reached the log. `_shared/relay.ts` now answers
+ * the preflight and carries Allow-Origin, which is invisible to the native app.
+ *
+ * READS GO THROUGH `export`, NOT `pull`, and that is deliberate. `pull` is the
+ * live-sync leg and is entitlement-gated: it answers a lapsed owner with 402.
+ * The lapsed dashboard is supposed to show the log frozen at the day the
+ * subscription ended, so gating the read would break exactly the state the
+ * design calls for. `export` is the always-allowed one-off feed read (D47, the
+ * no-hostage valve), it returns the same records, and it pages the whole feed
+ * server-side.
+ */
+
 async function edge(name, body) {
   const token = await accessToken();
   if (!token) throw new ApiError('auth', 401);
@@ -269,44 +286,37 @@ async function edge(name, body) {
         apikey: SUPABASE_KEY,
         authorization: `Bearer ${token}`,
       },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? '{}' : JSON.stringify(body),
     });
   } catch {
+    // A blocked or failed request is indistinguishable from being offline here,
+    // and both are a retry rather than a data problem.
     throw new ApiError('network');
   }
 
-  if (res.ok) return res.json();
+  // Every response carries the server's clock in `Date`. It costs no extra
+  // round-trip, and it is what a new stamp is clamped to below.
+  observeServerTime(Date.parse(res.headers.get('date') || ''));
+
+  if (res.ok) {
+    // Not every success carries a body; parsing unconditionally would turn one
+    // that does not into a thrown error the caller reports as a failure.
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  }
   if (res.status === 401 || res.status === 403) throw new ApiError('auth', res.status);
   if (res.status === 402) throw new ApiError('entitlement', res.status);
   throw new ApiError('server', res.status);
 }
 
-/**
- * The whole change feed, paged. `pull` is cursor based: each page returns the
- * cursor to ask for next and whether more is waiting.
- */
-export async function pullAll(onProgress) {
-  const rows = [];
-  let cursor = 0;
-  for (let page = 0; page < 200; page++) {
-    const body = await edge('pull', { cursor, limit: 1000 });
-    const changes = body.changes || [];
-    rows.push(...changes);
-    if (onProgress) onProgress(rows.length);
-    cursor = body.cursor ?? cursor;
-    if (!body.has_more || changes.length === 0) break;
-  }
-  return rows;
-}
-
-/** Push edited rows back through the relay. Returns the per-envelope results. */
-export async function push(envelopes) {
-  const body = await edge('push', { envelopes });
-  return body.results || [];
+/** The caller's whole change feed. Already paged server-side, so one call. */
+export async function readFeed() {
+  const body = await edge('export');
+  return body?.records || [];
 }
 
 /**
- * The entitlement mirror. Mapped exactly as the app maps it
+ * The entitlement mirror, mapped exactly as the app maps it
  * (features/billing/logic/mirror.ts): an `active` whose expiry has passed is
  * `lapsed`, not active.
  */
@@ -320,11 +330,51 @@ export async function entitlement() {
   return { state, expiresAt: body.expires_at ?? null, product: body.product ?? null };
 }
 
-/**
- * The one-off cloud export of the whole server feed. Deliberately NOT gated on
- * entitlement (D38/D47): the only requirement is a signed-in token, so a lapsed
- * reader is never held hostage to their own log.
+/** Push edited rows through the relay. Returns the per-envelope results. */
+export async function push(envelopes) {
+  const body = await edge('push', { envelopes });
+  return body?.results || [];
+}
+
+/* ----------------------------------------------------------- minting a stamp */
+
+/*
+ * The relay REFUSES a stamp more than five minutes ahead of its own clock
+ * (`relay_push_one`, result 'skew'), because a device with a fast clock would
+ * otherwise mint one that beats every later write forever. Clamping here means
+ * a browser with a wrong clock never mints one to be refused, which is what the
+ * app does with the same instrument and the same tolerance (src/db/sync-kit.ts).
  */
-export function cloudExport() {
-  return edge('export');
+
+const HLC_SKEW_TOLERANCE_MS = 300_000;
+
+let serverAnchor = null;
+
+/** Record the server's clock, paired with the local reading taken at the same
+ *  instant, so a constant local clock error cancels out. */
+function observeServerTime(serverMs) {
+  if (!Number.isFinite(serverMs)) return;
+  serverAnchor = { serverMs, localMs: Date.now() };
+}
+
+function skewCap() {
+  if (serverAnchor === null) return Number.POSITIVE_INFINITY;
+  const elapsed = Math.max(0, Date.now() - serverAnchor.localMs);
+  return Math.floor(serverAnchor.serverMs + elapsed + HLC_SKEW_TOLERANCE_MS);
+}
+
+let lastStamp = 0;
+let lastCounter = 0;
+
+/** `<millis, 14 digits>-<counter, base36, 4 wide>-<device_id>`: monotonic, so
+ *  two writes in one millisecond still order. */
+export function mintHlc(deviceId) {
+  const now = Math.min(Date.now(), skewCap());
+  if (now > lastStamp) {
+    lastStamp = now;
+    lastCounter = 0;
+  } else {
+    lastCounter += 1;
+  }
+  return `${String(lastStamp).padStart(14, '0')}-${lastCounter.toString(36).padStart(4, '0')}-${deviceId}`;
 }

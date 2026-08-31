@@ -113,7 +113,7 @@ async function load() {
       ? new Date(mirror.expiresAt).getTime()
       : null;
 
-    const rows = await api.pullAll();
+    const rows = await api.readFeed();
     const model = buildModel(materialise(rows), { cutoff: state.cutoff ?? Infinity });
     state.model = model;
     state.weightStepMilli = model.weightStepMilli;
@@ -561,21 +561,6 @@ function deviceId() {
   }
 }
 
-/* `<millis, 14 digits>-<counter, base36, 4 wide>-<device_id>`, monotonic so two
- * writes in one millisecond still order. */
-let lastStamp = 0;
-let lastCounter = 0;
-function mintHlc() {
-  const now = Date.now();
-  if (now > lastStamp) {
-    lastStamp = now;
-    lastCounter = 0;
-  } else {
-    lastCounter += 1;
-  }
-  return `${String(lastStamp).padStart(14, '0')}-${lastCounter.toString(36).padStart(4, '0')}-${deviceId()}`;
-}
-
 /**
  * Push one edited entity. `entity` is a materialised row, which carries the
  * change it came from on `__change`, so the schema version is the one the app
@@ -585,7 +570,7 @@ async function pushEntity(table, entity, changes) {
   const source = entity.__change;
   const payload = { ...entity, ...changes };
   delete payload.__change;
-  const hlc = mintHlc();
+  const hlc = api.mintHlc(deviceId());
   payload.hlc = hlc;
   payload.updatedAt = Date.now();
   payload.deviceId = deviceId();
