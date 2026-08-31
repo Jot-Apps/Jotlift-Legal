@@ -77,7 +77,8 @@
   <p>A report contains the error and the technical trace of where in the app it happened, basic device and app information such as your device model, operating system version and app version, and a short trail of the network requests the app made just before the error. That trail records only the method, the address and the response status. It never includes the contents of a request, and it never includes your workout data, your bodyweight or your measurements.</p>
   <p>Reports identify you by your account identifier, which is a random code we generate. They never include your email address.</p>
   <p>We have turned off the parts of Sentry that would record more. Jotlift does not use session replay, so no recording of your screen is ever made. It does not use performance tracing or profiling, it does not send the app&rsquo;s internal log messages, and it does not record your location. Jotlift never asks for location permission and never reads your device location.</p>
-  <p class="gap">Crash reporting cannot be turned off in the app, because an app that only reports crashes for some people cannot be kept working for everyone. If you would like the reports linked to your account deleted, email us at <a href="mailto:jotliftapp@gmail.com">jotliftapp@gmail.com</a> and we will remove them.</p>
+  <p>Crash and error reports are kept for up to 90 days and are then deleted automatically.</p>
+  <p class="gap">Crash reporting cannot be turned off in the app, because an app that only reports crashes for some people cannot be kept working for everyone. If you would like the reports linked to your account deleted sooner, email us at <a href="mailto:jotliftapp@gmail.com">jotliftapp@gmail.com</a> and we will remove them.</p>
 
   <h2>Advertising</h2>
   <p class="gap">We do not show ads inside Jotlift. If we ever promote Jotlift elsewhere, we build our own promotional material from our own general insight. We do not share your data with any advertising network, we do not use a tracking SDK, and we do not track you across other apps or websites. Because of this, Jotlift does not ask for app-tracking permission.</p>
@@ -118,7 +119,7 @@
     <li>Data on your device stays until you delete it or remove the app.</li>
     <li>Backup and sync data is kept while your account exists, and is deleted when you delete your account.</li>
     <li>Opt-in usage events are kept only in de-identified, aggregate form, as described under &ldquo;Usage analytics&rdquo;.</li>
-    <li>Crash and error reports are kept for a limited period and then deleted automatically. You can ask us to delete the reports linked to your account sooner.</li>
+    <li>Crash and error reports are kept for up to 90 days, then deleted automatically. You can ask us to delete the reports linked to your account sooner.</li>
   </ul>
 
   <h2>Security</h2>
