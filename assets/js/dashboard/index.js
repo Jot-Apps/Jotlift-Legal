@@ -21,7 +21,7 @@ import { icon } from '../icons.js';
 import * as api from './api.js';
 import { materialise, buildModel } from './store.js';
 import { fmt, priceRow, savedCountry } from '../prices.js';
-import { fromMilli, toMilli, fullDate, normalizeName, defaultIncrementMilli } from './domain.js';
+import { fromMilli, toMilli, convertMilli, fullDate, normalizeName, defaultIncrementMilli } from './domain.js';
 import * as views from './views.js';
 import { parseReps } from './views.js';
 import { buildRows, toCsv, toXlsx, download } from './export.js';
@@ -59,6 +59,11 @@ const state = {
   exerciseQuery: '',
   selectedExercise: null,
   selectedRoutine: null,
+  // The routine exercises whose plan is open. Kept here rather than in the DOM
+  // so a save, which rebuilds the page from the feed, leaves them open.
+  openRoutineItems: new Set(),
+  // The handle to put the keyboard back on after a reorder re-renders the list.
+  focusGrip: null,
   exportFormat: 'csv',
   exportFrom: null,
   exportTo: null,
@@ -149,6 +154,15 @@ function render() {
   else return;
 
   applyAppLink();
+
+  /* A reorder rebuilds the list, and a fresh button never has the focus the one
+   * it replaced was holding. Without this, moving a row with the keyboard moves
+   * it once and then drops you at the top of the page. */
+  if (state.focusGrip) {
+    const grip = root.querySelector(`[data-routine-item="${CSS.escape(state.focusGrip)}"] [data-routine-grip]`);
+    state.focusGrip = null;
+    if (grip) grip.focus();
+  }
 
   /* The chart opens pinned to the NEWEST session and drags back exactly as far
    * as the first, never forward past the newest. It re-pins only when the SERIES
@@ -535,9 +549,23 @@ function onClick(e) {
     addRoutineExercise();
     return;
   }
-  const rtMove = target('[data-routine-move]');
-  if (rtMove) {
-    moveRoutineItem(rtMove.closest('[data-routine-item]').dataset.routineItem, rtMove.dataset.routineMove);
+  const rtOpen = target('[data-routine-open]');
+  if (rtOpen) {
+    toggleRoutineItem(rtOpen);
+    return;
+  }
+  const rtPlan = target('[data-routine-plan-sets]');
+  if (rtPlan) {
+    planRoutineSets(rtPlan.closest('[data-routine-item]').dataset.routineItem);
+    return;
+  }
+  if (target('[data-routine-set-add]')) {
+    addRoutineSet(target('[data-routine-set-add]').closest('[data-routine-item]').dataset.routineItem);
+    return;
+  }
+  const rtSetRemove = target('[data-routine-set-remove]');
+  if (rtSetRemove) {
+    removeRoutineSet(rtSetRemove.closest('[data-routine-set]').dataset.routineSet);
     return;
   }
   const rtRemove = target('[data-routine-remove]');
@@ -570,6 +598,98 @@ function onClick(e) {
   }
 
 }
+
+/* ================================================== reordering an exercise */
+
+/* The exercises in a routine reorder by dragging the handle at the start of the
+ * row. The dragged row follows the pointer, and the rows it passes move out from
+ * under it AS IT GOES, so what is on screen at any moment is the order that gets
+ * saved: nothing is inferred afterwards from where a pointer happened to be let
+ * go. On release the order is read back off the DOM and committed once.
+ *
+ * Pointer events, so mouse, trackpad, touch and pen are one path rather than
+ * three. The handle carries `touch-action: none`, which is what stops a touch
+ * drag from scrolling the page instead of moving the row, and it is a real
+ * button: the arrow keys move the row for anyone not using a pointer.
+ */
+let drag = null;
+
+root.addEventListener('pointerdown', (e) => {
+  const grip = e.target.closest && e.target.closest('[data-routine-grip]');
+  if (!grip || state.busy) return;
+  const item = grip.closest('[data-routine-item]');
+  const list = item && item.parentElement;
+  if (!item || !list) return;
+  // Stops the press turning into a text selection or a page scroll mid-drag.
+  e.preventDefault();
+  grip.focus();
+  grip.setPointerCapture(e.pointerId);
+  drag = { grip, item, list, pointerId: e.pointerId, originY: e.clientY, moved: false };
+  item.classList.add('is-dragging');
+  list.classList.add('is-reordering');
+});
+
+root.addEventListener('pointermove', (e) => {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  const dy = e.clientY - drag.originY;
+  // A few pixels of travel is a press, not a drag. Only past that does releasing
+  // count as a reorder worth writing.
+  if (Math.abs(dy) > 3) drag.moved = true;
+  drag.item.style.transform = `translateY(${dy}px)`;
+
+  const box = drag.item.getBoundingClientRect();
+  for (const sibling of drag.list.querySelectorAll(':scope > [data-routine-item]')) {
+    if (sibling === drag.item) continue;
+    const rect = sibling.getBoundingClientRect();
+    const middle = rect.top + rect.height / 2;
+    // Rows have different heights once a plan is open, so the test is the
+    // neighbour's own middle rather than a row height.
+    const below = drag.item.compareDocumentPosition(sibling) & Node.DOCUMENT_POSITION_FOLLOWING;
+    if (below && box.bottom > middle) {
+      drag.list.insertBefore(drag.item, sibling.nextSibling);
+      rebaseDrag(e);
+      break;
+    }
+    if (!below && box.top < middle) {
+      drag.list.insertBefore(drag.item, sibling);
+      rebaseDrag(e);
+      break;
+    }
+  }
+});
+
+/** The row has just taken its new slot, so it is where it belongs: drop the
+ *  offset it was carrying and take this pointer position as the new origin. */
+function rebaseDrag(e) {
+  drag.item.style.transform = '';
+  drag.originY = e.clientY;
+}
+
+function endDrag(e) {
+  if (!drag || e.pointerId !== drag.pointerId) return;
+  const { item, list, moved } = drag;
+  item.style.transform = '';
+  item.classList.remove('is-dragging');
+  list.classList.remove('is-reordering');
+  drag = null;
+  if (!moved) return;
+  reorderRoutineItems(
+    [...list.querySelectorAll(':scope > [data-routine-item]')].map((node) => node.dataset.routineItem),
+  );
+}
+
+root.addEventListener('pointerup', endDrag);
+root.addEventListener('pointercancel', endDrag);
+
+/* The same move without a pointer. The handle says so in its own label. */
+root.addEventListener('keydown', (e) => {
+  const grip = e.target.closest && e.target.closest('[data-routine-grip]');
+  if (!grip) return;
+  const direction = e.key === 'ArrowUp' ? 'up' : e.key === 'ArrowDown' ? 'down' : null;
+  if (!direction) return;
+  e.preventDefault();
+  moveRoutineItem(grip.closest('[data-routine-item]').dataset.routineItem, direction);
+});
 
 /* Hovering a chart point reads it out, the same as clicking it. */
 root.addEventListener(
@@ -926,18 +1046,88 @@ function harvestRoutine() {
   for (const rowEl of detail.querySelectorAll('[data-routine-item]')) {
     const item = routine.items.find((i) => i.id === rowEl.dataset.routineItem);
     if (!item) continue;
-    const setsText = rowEl.querySelector('[data-item-field="sets"]')?.value.trim() ?? '';
-    const sets = setsText === '' ? null : Math.min(99, Math.max(0, Number(setsText) || 0)) || null;
-    // An unparseable rep box keeps whatever the row already had, rather than
-    // quietly clearing a target because of a typo.
-    const reps = parseReps(rowEl.querySelector('[data-item-field="reps"]')?.value ?? '');
-    item.pending = {
-      targetSets: sets,
-      targetRepsMin: reps ? reps.min : item.repsMin,
-      targetRepsMax: reps ? reps.max : item.repsMax,
-    };
+
+    // The summary cells are only on screen while the exercise has no planned
+    // sets. Reading a field that is not there would clear the very targets the
+    // plan was built from.
+    const setsField = rowEl.querySelector('[data-item-field="sets"]');
+    if (setsField) {
+      const setsText = setsField.value.trim();
+      const sets = setsText === '' ? null : Math.min(99, Math.max(0, Number(setsText) || 0)) || null;
+      // An unparseable rep box keeps whatever the row already had, rather than
+      // quietly clearing a target because of a typo.
+      const reps = parseReps(rowEl.querySelector('[data-item-field="reps"]')?.value ?? '');
+      item.pending = {
+        targetSets: sets,
+        targetRepsMin: reps ? reps.min : item.repsMin,
+        targetRepsMax: reps ? reps.max : item.repsMax,
+      };
+    }
+
+    for (const setEl of rowEl.querySelectorAll('[data-routine-set]')) {
+      const set = item.sets.find((s) => s.id === setEl.dataset.routineSet);
+      if (set) set.pending = readPlannedSet(setEl, item.exercise, set);
+    }
   }
   return routine;
+}
+
+/**
+ * One planned set's fields, read off its row.
+ *
+ * `0` AND `null` ARE DIFFERENT ANSWERS AND BOTH SURVIVE THE TRIP. An empty
+ * weight is null, which tells the logger to carry whatever was last lifted; a
+ * typed 0 is a target of zero and stays 0. Reps go the other way, matching the
+ * app's own builder: 0 is how a planned set says it has no rep target, so the
+ * empty box and a typed 0 both store null.
+ *
+ * A value nobody touched is written back EXACTLY as it is stored, never as its
+ * rendering. The reps box shows one number for a stored range, so re-reading it
+ * as min and max would narrow a 6 to 8 the app wrote into a flat 6, on a save
+ * the reader made for some other row entirely.
+ */
+function readPlannedSet(el, exercise, set) {
+  const field = (name) => el.querySelector(`[data-set-field="${name}"]`);
+  const patch = { setType: field('type')?.value || set.setType };
+
+  const shownReps = set.repsMin ?? set.repsMax;
+  const repsText = field('reps')?.value.trim() ?? '';
+  if (repsText === String(shownReps ?? '')) {
+    patch.targetRepsMin = set.repsMin;
+    patch.targetRepsMax = set.repsMax;
+  } else {
+    const reps = Math.round(Number(repsText));
+    // A typo keeps the target the set already had, rather than clearing it.
+    const target = repsText === '' ? null : Number.isFinite(reps) ? Math.min(999, Math.max(0, reps)) : shownReps;
+    patch.targetRepsMin = target ? target : null;
+    patch.targetRepsMax = target ? target : null;
+  }
+
+  const weightEl = field('weight');
+  if (!weightEl) {
+    // A rep-only exercise draws no weight field at all (D135); it keeps whatever
+    // the row stores rather than having it read off a control that is not there.
+    patch.targetWeightMilli = set.weightMilli;
+  } else {
+    const text = weightEl.value.trim();
+    const milli = text === '' ? null : toMilli(text);
+    if (text === '') patch.targetWeightMilli = null;
+    else if (!Number.isFinite(milli) || milli < 0) patch.targetWeightMilli = set.weightMilli;
+    // Typed in the unit on screen, stored in the exercise's own unit (D31).
+    else patch.targetWeightMilli = convertMilli(milli, state.model.displayUnit, exercise.unit || 'kg');
+  }
+  return patch;
+}
+
+/** A planned set's live values: what has been typed into it, or what it stores. */
+function plannedValues(set) {
+  if (set.pending) return set.pending;
+  return {
+    setType: set.setType,
+    targetRepsMin: set.repsMin,
+    targetRepsMax: set.repsMax,
+    targetWeightMilli: set.weightMilli,
+  };
 }
 
 /** One envelope for a routine row: its stored form, plus anything typed into it,
@@ -946,10 +1136,20 @@ function itemEnvelope(item, extra = {}) {
   return envelope('routine_exercises', edited(item.raw, { ...(item.pending || {}), ...extra }));
 }
 
+/** The same for one planned set. */
+function setEnvelope(set, extra = {}) {
+  return envelope('routine_sets', edited(set.raw, { ...(set.pending || {}), ...extra }));
+}
+
 /** True when the row already holds these values, so it need not be written. */
 function itemUnchanged(item, extra = {}) {
   const next = { ...(item.pending || {}), ...extra };
   return Object.entries(next).every(([k, v]) => item.raw[k] === v);
+}
+
+function setUnchanged(set, extra = {}) {
+  const next = { ...(set.pending || {}), ...extra };
+  return Object.entries(next).every(([k, v]) => set.raw[k] === v);
 }
 
 /** The routine's own row, when its name has been typed over. */
@@ -959,11 +1159,38 @@ function routineNameEnvelopes(routine) {
   return [envelope('routines', edited(routine.raw, { name }))];
 }
 
-/** Every pending row edit that is not already stored. */
-function pendingItemEnvelopes(routine, skipId = null) {
-  return routine.items
-    .filter((i) => i.id !== skipId && i.pending && !itemUnchanged(i))
-    .map((i) => itemEnvelope(i));
+/**
+ * Everything typed into the open routine that is not already stored: the name,
+ * the exercise rows, and every planned set under them.
+ *
+ * A caller that writes a row itself names it in `skipItems` / `skipSets`, because
+ * two envelopes for one entity in a batch settle by HLC and the loser's fields
+ * go missing. The caller's own envelope already carries the pending patch.
+ */
+function routineEnvelopes(routine, { skipItems, skipSets } = {}) {
+  const out = [...routineNameEnvelopes(routine)];
+  for (const item of routine.items) {
+    if (!skipItems?.has(item.id) && item.pending && !itemUnchanged(item)) out.push(itemEnvelope(item));
+    for (const set of item.sets) {
+      if (skipSets?.has(set.id) || !set.pending || setUnchanged(set)) continue;
+      out.push(setEnvelope(set));
+    }
+  }
+  return out;
+}
+
+/** A fresh routine_sets row, with the field set the app's own repository builds. */
+function newPlannedSet(routineExerciseId, orderIndex, seed = {}) {
+  return {
+    ...newStamps(),
+    routineExerciseId,
+    orderIndex,
+    setType: seed.setType ?? 'working',
+    targetRepsMin: seed.targetRepsMin ?? null,
+    targetRepsMax: seed.targetRepsMax ?? null,
+    // `??` never catches a 0, so a planned 0 reaches the row as 0.
+    targetWeightMilli: seed.targetWeightMilli ?? null,
+  };
 }
 
 async function createRoutine() {
@@ -979,7 +1206,7 @@ async function saveRoutine(id) {
   const routine = harvestRoutine();
   if (!routine || routine.id !== id) return;
 
-  const envelopes = [...routineNameEnvelopes(routine), ...pendingItemEnvelopes(routine)];
+  const envelopes = routineEnvelopes(routine);
   if (envelopes.length === 0) {
     flash('[data-routine-saved]', 'Nothing to save.');
     return;
@@ -1007,11 +1234,7 @@ async function addRoutineExercise() {
     supersetGroupId: null,
     perSide: 0,
   };
-  const ok = await commit([
-    ...routineNameEnvelopes(routine),
-    ...pendingItemEnvelopes(routine),
-    envelope('routine_exercises', row),
-  ]);
+  const ok = await commit([...routineEnvelopes(routine), envelope('routine_exercises', row)]);
   if (!ok) return;
   render();
 }
@@ -1024,33 +1247,57 @@ async function removeRoutineItem(itemId) {
   // Removing one leaves a hole in the order, so the rest close up behind it.
   const rest = routine.items.filter((i) => i.id !== itemId);
   const ok = await commit([
-    ...routineNameEnvelopes(routine),
+    // Every exercise row is written below, and this row's own planned sets are
+    // about to lose the row that names them.
+    ...routineEnvelopes(routine, {
+      skipItems: new Set(routine.items.map((i) => i.id)),
+      skipSets: new Set(item.sets.map((s) => s.id)),
+    }),
     envelope('routine_exercises', tombstoned(item.raw)),
     ...rest
       .map((i, index) => (itemUnchanged(i, { orderIndex: index }) ? null : itemEnvelope(i, { orderIndex: index })))
       .filter(Boolean),
   ]);
   if (!ok) return;
+  state.openRoutineItems.delete(itemId);
   render();
 }
 
+/** Move one exercise a single place. The handle's keyboard route. */
 async function moveRoutineItem(itemId, direction) {
-  const routine = harvestRoutine();
+  const routine = state.model.routines.find((r) => r.items.some((i) => i.id === itemId));
   if (!routine) return;
   const from = routine.items.findIndex((i) => i.id === itemId);
   const to = direction === 'up' ? from - 1 : from + 1;
-  if (from < 0 || to < 0 || to >= routine.items.length) return;
+  if (to < 0 || to >= routine.items.length) return;
 
-  const order = routine.items.slice();
+  const order = routine.items.map((i) => i.id);
   [order[from], order[to]] = [order[to], order[from]];
+  state.focusGrip = itemId;
+  await reorderRoutineItems(order);
+}
 
-  const ok = await commit([
-    ...routineNameEnvelopes(routine),
-    ...order
+/** Write a whole new order for a routine's exercises. `order` is item ids. */
+async function reorderRoutineItems(order) {
+  const routine = harvestRoutine();
+  if (!routine) return;
+  const moved = order
+    .map((id) => routine.items.find((i) => i.id === id))
+    .filter(Boolean);
+  if (moved.length !== routine.items.length) return;
+  // A drag that ended where it started is not a change. Returning before the
+  // re-render is what keeps a half-typed target in the row above it.
+  if (moved.every((item, index) => item === routine.items[index])) return;
+
+  await commit([
+    // Every exercise row is written below, merged with whatever was typed into it.
+    ...routineEnvelopes(routine, { skipItems: new Set(routine.items.map((i) => i.id)) }),
+    ...moved
       .map((i, index) => (itemUnchanged(i, { orderIndex: index }) ? null : itemEnvelope(i, { orderIndex: index })))
       .filter(Boolean),
   ]);
-  if (!ok) return;
+  // Re-rendered either way. A refused push leaves the model as it was, so this
+  // is what puts the rows back where they were before the drag.
   render();
 }
 
@@ -1065,6 +1312,99 @@ async function deleteRoutine(id) {
   state.selectedRoutine = null;
   render();
   flash('[data-routine-saved]', `Deleted ${routine.name}.`);
+}
+
+/* ----------------------------------------------------------- planned sets */
+
+/**
+ * Open or close one exercise's plan.
+ *
+ * A `hidden` flip and nothing else. Every field in a routine is uncontrolled, so
+ * a re-render here would cost the reader whatever they had typed into the rows
+ * above the one they just opened.
+ */
+function toggleRoutineItem(button) {
+  const itemEl = button.closest('[data-routine-item]');
+  const plan = itemEl?.querySelector('[data-routine-plan]');
+  if (!plan) return;
+  const open = plan.hidden;
+  plan.hidden = !open;
+  button.setAttribute('aria-expanded', String(open));
+  if (open) state.openRoutineItems.add(itemEl.dataset.routineItem);
+  else state.openRoutineItems.delete(itemEl.dataset.routineItem);
+}
+
+/**
+ * Give an exercise a set of its own per planned set.
+ *
+ * The same conversion the app runs the first time it opens a routine built
+ * before per-set plans existed (`ensurePlannedSets`): `targetSets ?? 3` working
+ * sets, each carrying the summary's rep range. Here it is a button rather than
+ * something that happens on open, so the write is the reader's, and after it the
+ * plan is what the routine runs.
+ */
+async function planRoutineSets(itemId) {
+  const routine = harvestRoutine();
+  const item = routine?.items.find((i) => i.id === itemId);
+  if (!item || item.sets.length > 0) return;
+
+  const summary = {
+    targetSets: item.targetSets,
+    targetRepsMin: item.repsMin,
+    targetRepsMax: item.repsMax,
+    ...(item.pending || {}),
+  };
+  const count = Math.min(20, Math.max(1, summary.targetSets ?? 3));
+  const rows = [];
+  for (let i = 0; i < count; i++) {
+    rows.push(
+      newPlannedSet(item.id, i, {
+        targetRepsMin: summary.targetRepsMin,
+        targetRepsMax: summary.targetRepsMax,
+      }),
+    );
+  }
+
+  const ok = await commit([...routineEnvelopes(routine), ...rows.map((r) => envelope('routine_sets', r))]);
+  if (!ok) return;
+  state.openRoutineItems.add(itemId);
+  render();
+}
+
+/** Append one planned set, opening on the last one of the same work: a fourth
+ *  set of the same thing is one tap rather than three fields. */
+async function addRoutineSet(itemId) {
+  const routine = harvestRoutine();
+  const item = routine?.items.find((i) => i.id === itemId);
+  if (!item) return;
+
+  const working = item.sets.filter((s) => plannedValues(s).setType === 'working');
+  const prior = working[working.length - 1];
+  const orderIndex = item.sets.reduce((max, s) => Math.max(max, s.raw.orderIndex), -1) + 1;
+  const row = newPlannedSet(item.id, orderIndex, prior ? plannedValues(prior) : {});
+
+  const ok = await commit([...routineEnvelopes(routine), envelope('routine_sets', row)]);
+  if (!ok) return;
+  render();
+}
+
+async function removeRoutineSet(setId) {
+  const routine = harvestRoutine();
+  const item = routine?.items.find((i) => i.sets.some((s) => s.id === setId));
+  const set = item?.sets.find((s) => s.id === setId);
+  if (!set) return;
+
+  // The sets behind it close up, the same way the exercises do.
+  const rest = item.sets.filter((s) => s.id !== setId);
+  const ok = await commit([
+    ...routineEnvelopes(routine, { skipSets: new Set(item.sets.map((s) => s.id)) }),
+    envelope('routine_sets', tombstoned(set.raw)),
+    ...rest
+      .map((s, index) => (setUnchanged(s, { orderIndex: index }) ? null : setEnvelope(s, { orderIndex: index })))
+      .filter(Boolean),
+  ]);
+  if (!ok) return;
+  render();
 }
 
 /* ================================================================== export */

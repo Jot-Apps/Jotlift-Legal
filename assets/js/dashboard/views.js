@@ -25,6 +25,10 @@ import {
   EQUIPMENT_TYPES,
   BODYWEIGHT_SUBTYPES,
   BODYWEIGHT_SUBTYPE_LABELS,
+  isRepOnly,
+  SET_TYPES,
+  SET_TYPE_LABELS,
+  SET_TYPE_TAGS,
 } from './domain.js';
 
 export function esc(text) {
@@ -793,8 +797,9 @@ export function renderRoutines(model, state) {
 }
 
 function renderRoutineDetail(routine, model, state, editable) {
+  const render = makeRenderer(model.displayUnit);
   const rows = routine.items
-    .map((item, i) => renderRoutineRow(item, i, routine.items.length, editable))
+    .map((item, i) => renderRoutineItem(item, i, state, editable, render))
     .join('');
 
   const addable = model.exercises
@@ -802,6 +807,13 @@ function renderRoutineDetail(routine, model, state, editable) {
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`)
     .join('');
+
+  const empty = `
+    <div class="routine-table__row">
+      <span></span><span></span>
+      <span class="routine-table__name quiet">No exercises yet.</span>
+      <span></span><span></span><span></span>
+    </div>`;
 
   return `
     <div class="routine-detail" data-routine-detail="${esc(routine.id)}">
@@ -814,17 +826,17 @@ function renderRoutineDetail(routine, model, state, editable) {
                </label>`
             : `<h3>${esc(routine.name)}</h3>`
         }
-        ${editable ? '<span style="font-size:14px" class="decorative">Use the arrows to reorder</span>' : '<span style="font-size:14px" class="decorative">Start it on your phone</span>'}
+        ${editable ? '<span style="font-size:14px" class="decorative">Drag the handle to reorder</span>' : '<span style="font-size:14px" class="decorative">Start it on your phone</span>'}
       </div>
 
       <div class="routine-table">
         <div class="routine-table__row routine-table__head">
-          <span></span><span>Exercise</span><span style="text-align:right">Sets</span><span style="text-align:right">Reps</span><span></span>
+          <span></span><span></span><span>Exercise</span><span style="text-align:right">Sets</span><span style="text-align:right">Reps</span><span></span>
         </div>
-        ${rows || '<div class="routine-table__row"><span></span><span class="routine-table__name quiet">No exercises yet.</span><span></span><span></span><span></span></div>'}
+        <div data-routine-rows>${rows || empty}</div>
       </div>
 
-      <p style="margin:14px 0 0;font-size:14px" class="quiet">Sets and reps are optional. Leave them blank and the routine just sets the order.</p>
+      <p style="margin:14px 0 0;font-size:14px;max-width:64ch" class="quiet">Open an exercise to plan each of its sets. Targets are optional. Leave them blank and the routine just sets the order.</p>
 
       ${
         editable
@@ -851,37 +863,209 @@ function renderRoutineDetail(routine, model, state, editable) {
     </div>`;
 }
 
-function renderRoutineRow(item, index, total, editable) {
-  if (!editable) {
-    return `
+/**
+ * One exercise: the row, plus its plan underneath it.
+ *
+ * THE PLAN IS RENDERED WHETHER OR NOT IT IS OPEN, and opening it is a `hidden`
+ * flip rather than a re-render. Every field in here is uncontrolled, so a
+ * re-render is a lost keystroke; opening the plan for the row below the one
+ * being typed into must not cost the typing above it.
+ *
+ * The summary cells are the exercise's own v1 targets and stay editable only
+ * while it has no planned sets. Once it has them they are the plan, so the cells
+ * report what the plan says instead of offering a second answer to the same
+ * question.
+ */
+function renderRoutineItem(item, index, state, editable, render) {
+  const name = esc(item.exercise.name);
+  const open = state.openRoutineItems.has(item.id);
+  const planId = `plan-${item.id}`;
+  const planned = item.sets.length > 0;
+
+  const grip = editable
+    ? `<button class="grip" type="button" data-routine-grip
+               aria-label="Reorder ${name}. Press the up or down arrow key to move it."
+               title="Drag to reorder">${icon('grip', 20, 2.6)}</button>`
+    : '';
+
+  const setsCell = planned || !editable
+    ? `<span class="routine-table__sets">${esc(item.targetSets ?? '')}</span>`
+    : `<span class="routine-table__sets">
+         <input class="cell-input" type="number" min="0" max="99" inputmode="numeric"
+                data-item-field="sets" value="${item.targetSets ?? ''}" aria-label="Sets for ${name}">
+       </span>`;
+
+  const repsCell = planned || !editable
+    ? `<span class="routine-table__reps${repsSummary(item) === 'Any' ? ' routine-table__reps--any' : ''}">${esc(repsSummary(item))}</span>`
+    : `<span class="routine-table__reps">
+         <input class="cell-input" type="text" inputmode="numeric" placeholder="Any"
+                data-item-field="reps" value="${esc(repsValue(item))}"
+                aria-label="Reps for ${name}, a number or a range like 6-8">
+       </span>`;
+
+  return `
+    <div class="routine-item" data-routine-item="${esc(item.id)}">
       <div class="routine-table__row">
+        <span class="routine-table__grip">${grip}</span>
         <span class="routine-table__n">${index + 1}</span>
-        <span class="routine-table__name">${esc(item.exercise.name)}</span>
-        <span class="routine-table__sets">${item.targetSets ?? ''}</span>
-        <span class="routine-table__reps${repsRange(item) === 'Any' ? ' routine-table__reps--any' : ''}">${esc(repsRange(item))}</span>
-        <span></span>
+        <button class="routine-open" type="button" data-routine-open
+                aria-expanded="${open}" aria-controls="${esc(planId)}">
+          <span class="routine-open__chevron">${icon('chevronD', 16)}</span>
+          <span class="routine-table__name">${name}</span>
+        </button>
+        ${setsCell}
+        ${repsCell}
+        <span class="routine-table__tools">${
+          editable
+            ? `<button class="icon-btn icon-btn--danger" type="button" data-routine-remove aria-label="Remove ${name}">${icon('plus', 15)}</button>`
+            : ''
+        }</span>
+      </div>
+      <div class="routine-plan" id="${esc(planId)}" data-routine-plan ${open ? '' : 'hidden'}>
+        ${renderRoutinePlan(item, editable, render)}
+      </div>
+    </div>`;
+}
+
+/** An exercise's planned sets, one row each, the way the app's builder lists them. */
+function renderRoutinePlan(item, editable, render) {
+  const name = esc(item.exercise.name);
+
+  if (item.sets.length === 0) {
+    if (!editable) return '<p class="routine-plan__note">No sets planned. Every set runs on what you lift.</p>';
+    const summary = summarySentence(item);
+    return `
+      <p class="routine-plan__note">${esc(summary)}</p>
+      <button class="routine-plan__add" type="button" data-routine-plan-sets>${icon('plus', 16)}<span>Plan each set</span></button>`;
+  }
+
+  const isRepOnlyExercise = isRepOnly(item.exercise);
+  const isBodyweight = item.exercise.equipmentType === 'bodyweight';
+  const weightLabel = isBodyweight ? 'Added weight' : 'Weight';
+
+  let working = 0;
+  const rows = item.sets
+    .map((set, i) => {
+      if (countsAsWorking(set.setType)) working += 1;
+      return renderPlannedSet(set, {
+        position: i + 1,
+        ordinal: working,
+        name,
+        editable,
+        isRepOnly: isRepOnlyExercise,
+        weightLabel,
+        unit: item.exercise.unit || 'kg',
+        render,
+      });
+    })
+    .join('');
+
+  return `
+    <div class="rsets">${rows}</div>
+    ${
+      editable
+        ? `<button class="routine-plan__add" type="button" data-routine-set-add>${icon('plus', 16)}<span>Add set</span></button>`
+        : ''
+    }`;
+}
+
+/**
+ * One planned set: its type, its reps target, and an optional weight target.
+ *
+ * The weight is stored in the EXERCISE'S OWN unit and read in the unit on
+ * screen, so it goes both ways through the one renderer. An empty field is not
+ * a target of 0: null carries whatever was last lifted, 0 asks for zero, and
+ * the two stay apart from here down to the envelope.
+ */
+function renderPlannedSet(set, ctx) {
+  const { position, ordinal, name, editable, isRepOnly: repOnly, weightLabel, unit, render } = ctx;
+  const tag = SET_TYPE_TAGS[set.setType];
+  const spoken = `${SET_TYPE_LABELS[set.setType]} set ${position} of ${name}`;
+  const reps = set.repsMin ?? set.repsMax;
+  const weight = set.weightMilli == null ? '' : render.value(set.weightMilli, unit);
+
+  const badge = `<span class="rset__badge${tag ? ' rset__badge--tag' : ''}">${esc(tag || String(ordinal))}</span>`;
+
+  if (!editable) {
+    const parts = [reps == null ? 'Any reps' : `${reps} reps`];
+    if (!repOnly && set.weightMilli != null) parts.push(render.text(set.weightMilli, unit));
+    return `
+      <div class="rset">
+        ${badge}
+        <span class="rset__read">${esc(SET_TYPE_LABELS[set.setType])}</span>
+        <span class="rset__read rset__read--values">${esc(parts.join(' at '))}</span>
       </div>`;
   }
 
+  const types = SET_TYPES.map(
+    (type) =>
+      `<option value="${type}"${type === set.setType ? ' selected' : ''}>${esc(SET_TYPE_LABELS[type])}</option>`,
+  ).join('');
+
+  const weightField = repOnly
+    ? ''
+    : `<label class="rset__field rset__field--weight">
+         <span class="rset__label">${esc(weightLabel)}</span>
+         <span class="rset__box">
+           <input class="cell-input" type="text" inputmode="decimal" placeholder="Any"
+                  data-set-field="weight" value="${esc(weight === '' ? '' : String(weight))}"
+                  aria-label="${esc(weightLabel)} for ${spoken}, in ${esc(render.unit)}">
+           <span class="rset__unit">${esc(render.unit)}</span>
+         </span>
+       </label>`;
+
   return `
-    <div class="routine-table__row" data-routine-item="${esc(item.id)}">
-      <span class="routine-table__n">${index + 1}</span>
-      <span class="routine-table__name">${esc(item.exercise.name)}</span>
-      <span class="routine-table__sets">
-        <input class="cell-input" type="number" min="0" max="99" inputmode="numeric"
-               data-item-field="sets" value="${item.targetSets ?? ''}" aria-label="Sets for ${esc(item.exercise.name)}">
-      </span>
-      <span class="routine-table__reps">
-        <input class="cell-input" type="text" inputmode="numeric" placeholder="Any"
-               data-item-field="reps" value="${esc(repsValue(item))}"
-               aria-label="Reps for ${esc(item.exercise.name)}, a number or a range like 6-8">
-      </span>
-      <span class="routine-table__tools">
-        <button class="icon-btn" type="button" data-routine-move="up" ${index === 0 ? 'disabled' : ''} aria-label="Move ${esc(item.exercise.name)} up">${icon('chevronD', 15)}</button>
-        <button class="icon-btn" type="button" data-routine-move="down" ${index === total - 1 ? 'disabled' : ''} aria-label="Move ${esc(item.exercise.name)} down">${icon('chevronD', 15)}</button>
-        <button class="icon-btn icon-btn--danger" type="button" data-routine-remove aria-label="Remove ${esc(item.exercise.name)}">${icon('plus', 15)}</button>
-      </span>
+    <div class="rset" data-routine-set="${esc(set.id)}">
+      ${badge}
+      <label class="rset__field rset__field--type">
+        <span class="rset__label">Set type</span>
+        <span class="rset__box">
+          <select class="cell-select" data-set-field="type" aria-label="Type of ${spoken}">${types}</select>
+        </span>
+      </label>
+      <label class="rset__field rset__field--reps">
+        <span class="rset__label">Reps</span>
+        <span class="rset__box">
+          <input class="cell-input" type="number" min="0" max="999" inputmode="numeric" placeholder="Any"
+                 data-set-field="reps" value="${reps == null ? '' : reps}"
+                 aria-label="Reps for ${spoken}">
+        </span>
+      </label>
+      ${weightField}
+      <button class="icon-btn icon-btn--danger rset__remove" type="button" data-routine-set-remove
+              aria-label="Remove set ${position} of ${name}">${icon('plus', 15)}</button>
     </div>`;
+}
+
+/** What an exercise with no planned sets runs as today, said in a sentence. */
+function summarySentence(item) {
+  const sets = item.targetSets;
+  const reps = repsSummary(item);
+  if (sets == null && reps === 'Any') {
+    return 'Nothing planned yet. Plan each set to give this exercise its own reps and weight.';
+  }
+  const count = sets == null ? 'Every set' : `${sets} ${sets === 1 ? 'set' : 'sets'}`;
+  const of = reps === 'Any' ? 'with no rep target' : `of ${reps}`;
+  return `${count} ${of}. Plan each set to give them their own reps and weight.`;
+}
+
+/**
+ * The Reps cell: the planned sets' targets once they exist, and the exercise's
+ * own summary until then. A plan whose sets ask for different numbers reports
+ * the span it covers, so the cell never claims one target where there are two.
+ */
+function repsSummary(item) {
+  if (item.sets.length === 0) return repsRange(item);
+  // The WORKING sets, because that is what the exercise is for. A warmup at 10
+  // under two working sets at 5 is not a routine that asks for 5 to 10 reps.
+  const counted = item.sets.filter((s) => countsAsWorking(s.setType));
+  const targets = (counted.length > 0 ? counted : item.sets)
+    .map((s) => s.repsMin ?? s.repsMax)
+    .filter((v) => v != null);
+  if (targets.length === 0) return 'Any';
+  const min = Math.min(...targets);
+  const max = Math.max(...targets);
+  return min === max ? String(min) : `${min} to ${max}`;
 }
 
 /** "4 sets of 6 to 8". A routine with no target just sets the order. */
