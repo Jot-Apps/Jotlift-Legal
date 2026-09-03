@@ -114,6 +114,14 @@
   --color-on-danger:       var(--white);      /* white on danger FILL (light only) */
   --color-warning:         var(--amb-deep);
   --color-warning-soft:    var(--amb-soft-l);
+
+  /* D67 — the destructive CONTROL's own pair, pre-resolved per mode the way
+     src/theme/colors.ts resolves it. A pair rather than two loose tokens, so
+     the wrong half cannot be picked: light is white on the danger fill, dark is
+     danger text on danger-soft, and white-on-red on graphite is unexpressible.
+     `danger` itself stays a signal and is never a button fill. */
+  --color-destructive-bg:  var(--color-danger);
+  --color-destructive-fg:  var(--color-on-danger);
 }
 
 /* ================= SEMANTIC — DARK (graphite) ================= */
@@ -143,6 +151,9 @@
   --color-on-danger:       var(--red-bright);
   --color-warning:         var(--amb-bright);
   --color-warning-soft:    var(--amb-soft-d);
+
+  /* Only the ground moves: the label is already danger-text via on-danger. */
+  --color-destructive-bg:  var(--color-danger-soft);
 }
 
 /* ================= APP LAYER — accent re-pointing ================= */

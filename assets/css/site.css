@@ -751,6 +751,42 @@ img { max-width: 100%; }
 .ex-actions__left { display: flex; flex-wrap: wrap; gap: 10px; }
 .danger-link { font-size: 15px; color: var(--color-danger); font-weight: 600; cursor: pointer; background: none; border: none; font-family: var(--font-text); padding: 0; }
 
+/* The destructive confirm. One dialog, opened by name from every deletion.
+
+   `<dialog>` in the top layer, so the scrim is a real ::backdrop and the page
+   behind it is inert: no z-index race, and nothing to re-implement about focus
+   or Escape. */
+.confirm {
+  border: none; padding: 0; background: none; max-width: min(420px, calc(100vw - 32px));
+  color: var(--color-text);
+}
+.confirm::backdrop { background: var(--color-scrim); }
+.confirm__panel {
+  background: var(--color-elevated); border-radius: var(--radius-lg);
+  box-shadow: var(--elev-3); padding: 24px;
+}
+.confirm__title { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.25; color: var(--color-text); }
+.confirm__body { margin: 12px 0 0; font-size: 15px; line-height: 1.55; color: var(--color-text-quiet); }
+/* The arms PAIR, with the escape leading: side by side they differ in position
+   as well as in fill, so the two halves never read as twins. */
+.confirm__arms { display: flex; gap: 12px; margin-top: 24px; }
+.confirm__arms .btn { flex: 1; }
+/* Past the width the pair fits, they take a line each, destructive on top and
+   the way out beneath it. The LAYOUT changes, never the type. */
+@media (max-width: 380px) {
+  .confirm__arms { flex-direction: column-reverse; }
+  /* `flex: 1` shares the MAIN axis, which is now vertical: left alone it would
+     divide the row's height between the two arms instead of their width. */
+  .confirm__arms .btn { flex: 0 0 auto; }
+}
+
+/* D67's pre-resolved pair, and the only red fill anywhere: `danger` itself is a
+   signal and is never a button. */
+.btn--destructive {
+  background: var(--color-destructive-bg); color: var(--color-destructive-fg);
+  border-color: transparent;
+}
+
 /* Routines */
 .routine-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .routine-card {
