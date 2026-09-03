@@ -39,6 +39,38 @@ export function esc(text) {
     .replace(/"/g, '&quot;');
 }
 
+/* ================================================================== CONFIRM */
+
+/**
+ * The one destructive confirm, rendered once per screen and opened by name.
+ *
+ * A NATIVE `<dialog>`, opened with showModal(), which is what buys the things a
+ * hand-rolled panel has to re-implement and usually gets wrong: the focus goes
+ * inside and stays there, Escape closes it, the page behind it is inert, and the
+ * backdrop is a real `::backdrop` taking the scrim token.
+ *
+ * THE ARMS PAIR WITH THE ESCAPE LEADING, and the destructive one is the only red
+ * on the page (D67's pre-resolved pair, never `danger` as a fill). Past the width
+ * the pair fits, they stack with the destructive arm on top and the way out
+ * beneath it, which is the app's own fallback: the LAYOUT changes, never the type.
+ *
+ * The copy is the caller's, and the escape arm says what backing out DOES rather
+ * than "Cancel" (D61).
+ */
+export function confirmDialog() {
+  return `
+    <dialog class="confirm" data-confirm aria-labelledby="confirm-title">
+      <div class="confirm__panel">
+        <h2 class="confirm__title" id="confirm-title" data-confirm-title></h2>
+        <p class="confirm__body" data-confirm-body hidden></p>
+        <div class="confirm__arms">
+          <button class="btn btn--secondary" type="button" data-confirm-cancel>Keep it</button>
+          <button class="btn btn--destructive" type="button" data-confirm-go></button>
+        </div>
+      </div>
+    </dialog>`;
+}
+
 /* ================================================================== HISTORY */
 
 export function renderHistory(model, state) {

@@ -405,7 +405,8 @@ function dashboard() {
         <div class="dash-main">${body}</div>
       </div>
     </section>
-    <nav class="dash-tabbar" aria-label="Dashboard">${nav}</nav>`;
+    <nav class="dash-tabbar" aria-label="Dashboard">${nav}</nav>
+    ${views.confirmDialog()}`;
 }
 
 /* ================================================================== events */
@@ -423,6 +424,24 @@ document.addEventListener('click', (e) => {
 
 function onClick(e) {
   const target = (selector) => e.target.closest(selector);
+
+  /* The confirm's own arms, ahead of everything: while it is open nothing behind
+     it is reachable anyway, and this is the one place a deletion runs. */
+  if (target('[data-confirm-cancel]')) {
+    closeConfirm();
+    return;
+  }
+  if (target('[data-confirm-go]')) {
+    const run = pendingConfirm;
+    closeConfirm();
+    run?.();
+    return;
+  }
+  // A click on the dialog itself landed on its backdrop, which is a no.
+  if (e.target.matches('[data-confirm]')) {
+    closeConfirm();
+    return;
+  }
 
   const tab = target('[data-tab]');
   if (tab) {
@@ -634,6 +653,52 @@ function onClick(e) {
   }
 
 }
+
+/* ==================================================== the destructive confirm */
+
+/* EVERY DELETION ON THIS PAGE GOES THROUGH ONE GATE, so the idiom is identical
+ * wherever it appears, the way F04's ConfirmSheet is in the app. Nothing here
+ * decides what a deletion means; a caller hands over its own copy and the thing
+ * to do once the reader has said yes.
+ *
+ * Opening it does NOT re-render. The dialog is already in the page, and every
+ * field in the routine editor is uncontrolled, so a re-render to show a confirm
+ * would cost the reader whatever they had typed on the way to asking for it.
+ */
+
+/** What a confirmed dialog will run. Held here rather than in `state`, which
+ *  carries the data a render reads, never a callback. */
+let pendingConfirm = null;
+
+/**
+ * Ask, then act. `title` is a plain question, `body` an optional one-line
+ * consequence, `confirmLabel` the same verb the control that opened it used.
+ */
+function confirmThen({ title, body = '', confirmLabel }, run) {
+  const dialog = root.querySelector('[data-confirm]');
+  // A destructive control on a screen with no dialog to ask through would fall
+  // back to deleting WITHOUT asking, which is the one thing this gate exists to
+  // prevent. So it refuses, loudly enough to be found, and deletes nothing.
+  if (!dialog) throw new Error('a destructive action with no confirm to ask through');
+  pendingConfirm = run;
+  dialog.querySelector('[data-confirm-title]').textContent = title;
+  const bodyEl = dialog.querySelector('[data-confirm-body]');
+  bodyEl.textContent = body;
+  bodyEl.hidden = body === '';
+  dialog.querySelector('[data-confirm-go]').textContent = confirmLabel;
+  dialog.showModal();
+}
+
+function closeConfirm() {
+  pendingConfirm = null;
+  root.querySelector('[data-confirm]')?.close();
+}
+
+/* Escape needs no handler of its own. The dialog closes itself, and the only
+ * thing that ever reads `pendingConfirm` is the confirm arm inside a dialog that
+ * is open: a closed one cannot be clicked, and opening the next one re-arms it.
+ * A `cancel` listener clearing it would be a guard against a state that cannot
+ * be reached, which is why there is not one. */
 
 /* ==================================================== reordering a routine */
 
@@ -1069,9 +1134,20 @@ async function createExercise() {
   flash('[data-exercise-saved]', `Added ${form.name}.`);
 }
 
-async function deleteExercise(id) {
+function deleteExercise(id) {
   const exercise = state.model.exercises.find((e) => e.id === id);
   if (!exercise) return;
+  confirmThen(
+    {
+      title: `Delete "${exercise.name}"?`,
+      body: 'Its logged sets stay in your history.',
+      confirmLabel: 'Delete',
+    },
+    () => reallyDeleteExercise(exercise),
+  );
+}
+
+async function reallyDeleteExercise(exercise) {
   const ok = await commit([envelope('exercises', tombstoned(exercise))]);
   if (!ok) return;
   state.selectedExercise = null;
@@ -1330,7 +1406,18 @@ function ghostSeed(exerciseId) {
   return { targetRepsMin: reps, targetRepsMax: reps, targetWeightMilli: hit.weightMilli };
 }
 
-async function removeRoutineItem(itemId) {
+function removeRoutineItem(itemId) {
+  const routine = state.model.routines.find((r) => r.id === shownRoutineId());
+  const item = routine?.items.find((i) => i.id === itemId);
+  if (!item) return;
+  const name = item.exercise ? item.exercise.name : 'this exercise';
+  confirmThen({ title: `Remove ${name}?`, confirmLabel: 'Remove' }, () => reallyRemoveRoutineItem(itemId));
+}
+
+async function reallyRemoveRoutineItem(itemId) {
+  // The fields have sat untouched behind a modal since the question was asked,
+  // so what is in them is what was typed before it, and it rides along in the
+  // same push. Nothing was re-rendered to ask, which is what makes that true.
   const routine = harvestRoutine();
   const item = routine?.items.find((i) => i.id === itemId);
   if (!item) return;
@@ -1402,9 +1489,16 @@ async function reorderRoutineItems(order) {
   render();
 }
 
-async function deleteRoutine(id) {
+function deleteRoutine(id) {
   const routine = state.model.routines.find((r) => r.id === id);
   if (!routine) return;
+  confirmThen(
+    { title: 'Delete this routine?', body: 'Your workout history is untouched.', confirmLabel: 'Delete' },
+    () => reallyDeleteRoutine(routine),
+  );
+}
+
+async function reallyDeleteRoutine(routine) {
   const ok = await commit([
     envelope('routines', tombstoned(routine.raw)),
     ...routine.items.map((i) => envelope('routine_exercises', tombstoned(i.raw))),
@@ -1594,7 +1688,15 @@ async function addRoutineSet(itemId) {
   render();
 }
 
-async function removeRoutineSet(setId) {
+function removeRoutineSet(setId) {
+  const routine = state.model.routines.find((r) => r.id === shownRoutineId());
+  const item = routine?.items.find((i) => i.sets.some((s) => s.id === setId));
+  if (!item) return;
+  const position = item.sets.findIndex((s) => s.id === setId) + 1;
+  confirmThen({ title: `Remove set ${position}?`, confirmLabel: 'Remove' }, () => reallyRemoveRoutineSet(setId));
+}
+
+async function reallyRemoveRoutineSet(setId) {
   const routine = harvestRoutine();
   const item = routine?.items.find((i) => i.sets.some((s) => s.id === setId));
   const set = item?.sets.find((s) => s.id === setId);
