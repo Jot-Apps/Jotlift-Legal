@@ -777,7 +777,21 @@ export function renderRoutines(model, state) {
 
   const selected = model.routines.find((r) => r.id === state.selectedRoutine) || model.routines[0];
 
-  const cards = model.routines
+  // Picking exercises to group is a mode over the routine, the way it is in the
+  // app: the list becomes a list of choices and one accent control confirms.
+  if (editable && state.supersetSource && selected.items.some((i) => i.id === state.supersetSource)) {
+    return `${head}<div class="routine-cards">${routineCards(model, selected)}</div>
+      ${renderSupersetPicker(selected, state)}`;
+  }
+
+  return `${head}
+    <div class="routine-cards">${routineCards(model, selected)}</div>
+    ${renderRoutineDetail(selected, model, state, editable)}
+    <p class="notice notice--success" data-routine-saved hidden style="margin-top:16px"></p>`;
+}
+
+function routineCards(model, selected) {
+  return model.routines
     .map(
       (r) => `
       <button class="routine-card" type="button" data-routine="${esc(r.id)}" aria-selected="${r.id === selected.id}">
@@ -789,17 +803,47 @@ export function renderRoutines(model, state) {
       </button>`,
     )
     .join('');
+}
 
-  return `${head}
-    <div class="routine-cards">${cards}</div>
-    ${renderRoutineDetail(selected, model, state, editable)}
-    <p class="notice notice--success" data-routine-saved hidden style="margin-top:16px"></p>`;
+/**
+ * Fold the ordered rows into the BLOCKS the list actually moves: one exercise,
+ * or one contiguous superset. A member cannot move on its own, so the block is
+ * what carries a handle and what a drag reorders (the app's buildRows).
+ */
+export function routineBlocks(items) {
+  const out = [];
+  let i = 0;
+  while (i < items.length) {
+    const groupId = items[i].supersetGroupId;
+    if (groupId == null) {
+      out.push({ kind: 'single', items: [items[i]] });
+      i += 1;
+      continue;
+    }
+    const members = [];
+    while (i < items.length && items[i].supersetGroupId === groupId) {
+      members.push(items[i]);
+      i += 1;
+    }
+    out.push(members.length === 1 ? { kind: 'single', items: members } : { kind: 'group', groupId, items: members });
+  }
+  return out;
 }
 
 function renderRoutineDetail(routine, model, state, editable) {
   const render = makeRenderer(model.displayUnit);
-  const rows = routine.items
-    .map((item, i) => renderRoutineItem(item, i, state, editable, render))
+
+  // The row's number is its place in the routine, so it counts across blocks
+  // rather than restarting inside a superset.
+  let position = 0;
+  const rows = routineBlocks(routine.items)
+    .map((block) => {
+      const first = position;
+      position += block.items.length;
+      return block.kind === 'group'
+        ? renderSuperset(block, first, state, editable, render)
+        : `<div class="routine-block" data-routine-block="${esc(block.items[0].id)}">${renderRoutineItem(block.items[0], first, state, editable, render, { handle: true })}</div>`;
+    })
     .join('');
 
   const addable = model.exercises
@@ -815,17 +859,22 @@ function renderRoutineDetail(routine, model, state, editable) {
       <span></span><span></span><span></span>
     </div>`;
 
+  const counts = `${routine.items.length} ${routine.items.length === 1 ? 'exercise' : 'exercises'} · ${routine.plannedSetCount} ${routine.plannedSetCount === 1 ? 'set' : 'sets'}`;
+
   return `
     <div class="routine-detail" data-routine-detail="${esc(routine.id)}">
       <div class="routine-detail__head">
-        ${
-          editable
-            ? `<label class="field" style="max-width:340px">
-                 <span class="field__label">Routine name</span>
-                 <span class="field__box"><input type="text" data-routine-name value="${esc(routine.name)}"></span>
-               </label>`
-            : `<h3>${esc(routine.name)}</h3>`
-        }
+        <div>
+          ${
+            editable
+              ? `<label class="field" style="max-width:340px">
+                   <span class="field__label">Routine name</span>
+                   <span class="field__box"><input type="text" data-routine-name value="${esc(routine.name)}"></span>
+                 </label>`
+              : `<h3>${esc(routine.name)}</h3>`
+          }
+          <p class="routine-detail__counts">${esc(counts)}</p>
+        </div>
         ${editable ? '<span style="font-size:14px" class="decorative">Drag the handle to reorder</span>' : '<span style="font-size:14px" class="decorative">Start it on your phone</span>'}
       </div>
 
@@ -836,7 +885,7 @@ function renderRoutineDetail(routine, model, state, editable) {
         <div data-routine-rows>${rows || empty}</div>
       </div>
 
-      <p style="margin:14px 0 0;font-size:14px;max-width:64ch" class="quiet">Open an exercise to plan each of its sets. Targets are optional. Leave them blank and the routine just sets the order.</p>
+      <p style="margin:14px 0 0;font-size:14px;max-width:64ch" class="quiet">Open an exercise to plan its sets. Every target is optional: a set with none runs on what you lift.</p>
 
       ${
         editable
@@ -863,6 +912,35 @@ function renderRoutineDetail(routine, model, state, editable) {
     </div>`;
 }
 
+/** A superset: one recessed well, its own handle, and its members lettered. */
+function renderSuperset(block, first, state, editable, render) {
+  const members = block.items
+    .map((item, i) =>
+      renderRoutineItem(item, first + i, state, editable, render, { handle: false, letter: LETTERS[i] }),
+    )
+    .join('');
+
+  const names = block.items.map((i) => itemName(i)).join(', ');
+  const handle = editable
+    ? `<button class="grip" type="button" data-routine-grip
+               aria-label="Reorder superset, ${esc(names)}. Press the up or down arrow key to move it."
+               title="Drag to reorder">${icon('grip', 20, 2.6)}</button>`
+    : '';
+
+  return `
+    <div class="routine-block routine-superset" data-routine-block="${esc(block.groupId)}">
+      <div class="routine-superset__head">${handle}<span>Superset</span></div>
+      ${members}
+    </div>`;
+}
+
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+/** A routine row's name. A deleted exercise (D60) is named as what it is. */
+function itemName(item) {
+  return item.missing ? 'Exercise removed' : item.exercise.name;
+}
+
 /**
  * One exercise: the row, plus its plan underneath it.
  *
@@ -871,74 +949,63 @@ function renderRoutineDetail(routine, model, state, editable) {
  * re-render is a lost keystroke; opening the plan for the row below the one
  * being typed into must not cost the typing above it.
  *
- * The summary cells are the exercise's own v1 targets and stay editable only
- * while it has no planned sets. Once it has them they are the plan, so the cells
- * report what the plan says instead of offering a second answer to the same
- * question.
+ * The Sets and Reps cells REPORT the plan. There is nothing to type into them,
+ * because the plan is the only place a target is stated: one system here and on
+ * the phone, rather than a summary on the web and a set list in the app.
  */
-function renderRoutineItem(item, index, state, editable, render) {
-  const name = esc(item.exercise.name);
+function renderRoutineItem(item, index, state, editable, render, { handle = true, letter = null } = {}) {
+  const name = esc(itemName(item));
+  const title = letter ? `${letter}. ${name}` : name;
   const open = state.openRoutineItems.has(item.id);
   const planId = `plan-${item.id}`;
-  const planned = item.sets.length > 0;
+  // A row whose exercise is gone has no plan to open, and never crashes the rest.
+  const expandable = !item.missing;
 
-  const grip = editable
+  const grip = editable && handle
     ? `<button class="grip" type="button" data-routine-grip
                aria-label="Reorder ${name}. Press the up or down arrow key to move it."
                title="Drag to reorder">${icon('grip', 20, 2.6)}</button>`
     : '';
 
-  const setsCell = planned || !editable
-    ? `<span class="routine-table__sets">${esc(item.targetSets ?? '')}</span>`
-    : `<span class="routine-table__sets">
-         <input class="cell-input" type="number" min="0" max="99" inputmode="numeric"
-                data-item-field="sets" value="${item.targetSets ?? ''}" aria-label="Sets for ${name}">
-       </span>`;
-
-  const repsCell = planned || !editable
-    ? `<span class="routine-table__reps${repsSummary(item) === 'Any' ? ' routine-table__reps--any' : ''}">${esc(repsSummary(item))}</span>`
-    : `<span class="routine-table__reps">
-         <input class="cell-input" type="text" inputmode="numeric" placeholder="Any"
-                data-item-field="reps" value="${esc(repsValue(item))}"
-                aria-label="Reps for ${name}, a number or a range like 6-8">
-       </span>`;
+  const label = `
+    <span class="routine-open__chevron">${expandable ? icon('chevronD', 16) : ''}</span>
+    <span class="routine-open__main">
+      <span class="routine-table__name${item.missing ? ' quiet' : ''}">${title}</span>
+      ${item.perSide ? '<span class="routine-table__mode">Per side</span>' : ''}
+    </span>`;
 
   return `
     <div class="routine-item" data-routine-item="${esc(item.id)}">
       <div class="routine-table__row">
         <span class="routine-table__grip">${grip}</span>
         <span class="routine-table__n">${index + 1}</span>
-        <button class="routine-open" type="button" data-routine-open
-                aria-expanded="${open}" aria-controls="${esc(planId)}">
-          <span class="routine-open__chevron">${icon('chevronD', 16)}</span>
-          <span class="routine-table__name">${name}</span>
-        </button>
-        ${setsCell}
-        ${repsCell}
+        ${
+          expandable
+            ? `<button class="routine-open" type="button" data-routine-open
+                       aria-expanded="${open}" aria-controls="${esc(planId)}">${label}</button>`
+            : `<span class="routine-open">${label}</span>`
+        }
+        <span class="routine-table__sets">${item.sets.length || ''}</span>
+        <span class="routine-table__reps${repsSummary(item) === 'Any' ? ' routine-table__reps--any' : ''}">${esc(repsSummary(item))}</span>
         <span class="routine-table__tools">${
           editable
             ? `<button class="icon-btn icon-btn--danger" type="button" data-routine-remove aria-label="Remove ${name}">${icon('plus', 15)}</button>`
             : ''
         }</span>
       </div>
-      <div class="routine-plan" id="${esc(planId)}" data-routine-plan ${open ? '' : 'hidden'}>
-        ${renderRoutinePlan(item, editable, render)}
-      </div>
+      ${
+        expandable
+          ? `<div class="routine-plan" id="${esc(planId)}" data-routine-plan ${open ? '' : 'hidden'}>
+               ${renderRoutinePlan(item, editable, render)}
+             </div>`
+          : ''
+      }
     </div>`;
 }
 
 /** An exercise's planned sets, one row each, the way the app's builder lists them. */
 function renderRoutinePlan(item, editable, render) {
   const name = esc(item.exercise.name);
-
-  if (item.sets.length === 0) {
-    if (!editable) return '<p class="routine-plan__note">No sets planned. Every set runs on what you lift.</p>';
-    const summary = summarySentence(item);
-    return `
-      <p class="routine-plan__note">${esc(summary)}</p>
-      <button class="routine-plan__add" type="button" data-routine-plan-sets>${icon('plus', 16)}<span>Plan each set</span></button>`;
-  }
-
   const isRepOnlyExercise = isRepOnly(item.exercise);
   const isBodyweight = item.exercise.equipmentType === 'bodyweight';
   const weightLabel = isBodyweight ? 'Added weight' : 'Weight';
@@ -960,8 +1027,33 @@ function renderRoutinePlan(item, editable, render) {
     })
     .join('');
 
+  /* Per side and the superset actions belong to the EXERCISE, not to a set: a
+     per-side card logs a left and a right row at one order index (D13), so it
+     could never be per-set. They sit at the head of the exercise's own panel,
+     which is where everything else about this exercise is edited. */
+  const tools = editable
+    ? `<div class="plan-tools">
+         <label class="check">
+           <input type="checkbox" data-per-side ${item.perSide ? 'checked' : ''}>
+           <span>Per side</span>
+         </label>
+         ${
+           item.supersetGroupId
+             ? '<button class="linkish" type="button" data-superset-remove>Remove from superset</button>'
+             : '<button class="linkish" type="button" data-superset-add>Add to superset</button>'
+         }
+       </div>`
+    : item.perSide
+      ? '<p class="routine-plan__note">Left and right are logged separately.</p>'
+      : '';
+
+  const empty = editable
+    ? '<p class="routine-plan__note">No sets planned. Add one to give this exercise a target.</p>'
+    : '<p class="routine-plan__note">No sets planned. Every set runs on what you lift.</p>';
+
   return `
-    <div class="rsets">${rows}</div>
+    ${tools}
+    ${rows ? `<div class="rsets">${rows}</div>` : empty}
     ${
       editable
         ? `<button class="routine-plan__add" type="button" data-routine-set-add>${icon('plus', 16)}<span>Add set</span></button>`
@@ -971,6 +1063,10 @@ function renderRoutinePlan(item, editable, render) {
 
 /**
  * One planned set: its type, its reps target, and an optional weight target.
+ *
+ * ONE reps number per set, stored as min === max, which is what the app's own
+ * builder writes. A stored range (the shape a v1 routine converts to) shows its
+ * min, and the next edit rewrites it as a single number, exactly as the app does.
  *
  * The weight is stored in the EXERCISE'S OWN unit and read in the unit on
  * screen, so it goes both ways through the one renderer. An empty field is not
@@ -1037,27 +1133,46 @@ function renderPlannedSet(set, ctx) {
     </div>`;
 }
 
-/** What an exercise with no planned sets runs as today, said in a sentence. */
-function summarySentence(item) {
-  const sets = item.targetSets;
-  const reps = repsSummary(item);
-  if (sets == null && reps === 'Any') {
-    return 'Nothing planned yet. Plan each set to give this exercise its own reps and weight.';
-  }
-  const count = sets == null ? 'Every set' : `${sets} ${sets === 1 ? 'set' : 'sets'}`;
-  const of = reps === 'Any' ? 'with no rep target' : `of ${reps}`;
-  return `${count} ${of}. Plan each set to give them their own reps and weight.`;
+/** Pick the exercises to group, the app's select mode. Ungrouped rows only. */
+function renderSupersetPicker(routine, state) {
+  const candidates = routine.items.filter((i) => i.supersetGroupId == null && !i.missing);
+  const chosen = state.supersetPicked;
+
+  const rows = candidates
+    .map(
+      (item) => `
+      <label class="pick-row">
+        <input type="checkbox" data-superset-pick="${esc(item.id)}" ${chosen.has(item.id) ? 'checked' : ''}>
+        <span class="pick-row__name">${esc(itemName(item))}</span>
+        <span class="pick-row__meta">${item.sets.length} ${item.sets.length === 1 ? 'set' : 'sets'}</span>
+      </label>`,
+    )
+    .join('');
+
+  const count = chosen.size;
+  return `
+    <div class="routine-detail">
+      <h3 style="margin:0 0 4px;font-size:20px;font-weight:600;color:var(--color-text)">Pick exercises to group</h3>
+      <p style="margin:0 0 18px;font-size:15px;max-width:60ch" class="quiet">A superset runs its exercises back to back. They move together and stay together, and the grouping carries into the workout you start from this routine.</p>
+      <div class="pick-list">${rows}</div>
+      <div class="ex-actions" style="margin-top:18px">
+        <div class="ex-actions__left">
+          <button class="btn" type="button" data-superset-confirm ${count < 2 ? 'disabled' : ''}>Group ${count} ${count === 1 ? 'exercise' : 'exercises'}</button>
+          <button class="btn btn--secondary" type="button" data-superset-cancel>Cancel</button>
+        </div>
+      </div>
+    </div>`;
 }
 
 /**
- * The Reps cell: the planned sets' targets once they exist, and the exercise's
- * own summary until then. A plan whose sets ask for different numbers reports
- * the span it covers, so the cell never claims one target where there are two.
+ * The Reps cell. Derived from the planned sets and nowhere else: it says what
+ * the sets say, so it reads as one number when they agree and as the span they
+ * cover when they do not. Nothing writes a rep target here.
+ *
+ * The WORKING sets, because that is what the exercise is for. A warmup at 10
+ * under two working sets at 5 is not a routine that asks for 5 to 10 reps.
  */
 function repsSummary(item) {
-  if (item.sets.length === 0) return repsRange(item);
-  // The WORKING sets, because that is what the exercise is for. A warmup at 10
-  // under two working sets at 5 is not a routine that asks for 5 to 10 reps.
   const counted = item.sets.filter((s) => countsAsWorking(s.setType));
   const targets = (counted.length > 0 ? counted : item.sets)
     .map((s) => s.repsMin ?? s.repsMax)
@@ -1065,38 +1180,7 @@ function repsSummary(item) {
   if (targets.length === 0) return 'Any';
   const min = Math.min(...targets);
   const max = Math.max(...targets);
-  return min === max ? String(min) : `${min} to ${max}`;
-}
-
-/** "4 sets of 6 to 8". A routine with no target just sets the order. */
-function repsRange(item) {
-  const { repsMin, repsMax } = item;
-  if (repsMin == null && repsMax == null) return 'Any';
-  if (repsMin != null && repsMax != null) return repsMin === repsMax ? String(repsMin) : `${repsMin} to ${repsMax}`;
-  return String(repsMin ?? repsMax);
-}
-
-/** The same range as an editable value: "8" or "6-8", blank for any. */
-function repsValue(item) {
-  const { repsMin, repsMax } = item;
-  if (repsMin == null && repsMax == null) return '';
-  if (repsMin != null && repsMax != null) return repsMin === repsMax ? String(repsMin) : `${repsMin}-${repsMax}`;
-  return String(repsMin ?? repsMax);
-}
-
-/** Read "8" or "6-8" back into a min and a max. Blank means no target. */
-export function parseReps(text) {
-  const trimmed = String(text || '').trim();
-  if (!trimmed) return { min: null, max: null };
-  const range = /^(\d{1,3})\s*(?:-|to|–)\s*(\d{1,3})$/i.exec(trimmed);
-  if (range) {
-    const a = Number(range[1]);
-    const b = Number(range[2]);
-    return { min: Math.min(a, b), max: Math.max(a, b) };
-  }
-  const one = /^(\d{1,3})$/.exec(trimmed);
-  if (one) return { min: Number(one[1]), max: Number(one[1]) };
-  return null; // unparseable: the caller keeps what was there
+  return min === max ? String(min) : `${min}-${max}`;
 }
 
 /* =================================================================== EXPORT */

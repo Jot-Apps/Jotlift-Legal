@@ -241,8 +241,12 @@ export function buildModel(tables, { cutoff = Infinity } = {}) {
     .map((routine) => {
       const items = (routineExercisesByRoutine.get(routine.id) || [])
         .map((re) => {
-          const exercise = exercisesById.get(re.exerciseId);
-          if (!exercise) return null;
+          // A row whose exercise was deleted (D60) is KEPT and marked, exactly as
+          // the app's builder keeps it. Dropping it hid part of the routine and,
+          // worse, took it out of the order: every reindex this page writes
+          // counts positions, and counting past an invisible row renumbers the
+          // routine into something nobody asked for.
+          const exercise = exercisesById.get(re.exerciseId) ?? null;
           const planned = routineSetsByExercise.get(re.id) || [];
           /* THE PLANNED ROWS WIN WHEREVER THEY EXIST, because they are what
            * actually runs: startFromRoutine seeds the workout from routine_sets
@@ -255,6 +259,10 @@ export function buildModel(tables, { cutoff = Infinity } = {}) {
             id: re.id,
             raw: re,
             exercise,
+            missing: exercise === null,
+            // Rows sharing a non-null group id form a superset (R2-8), and the
+            // grouping carries into the workout started from this routine.
+            supersetGroupId: re.supersetGroupId ?? null,
             targetSets,
             repsMin: re.targetRepsMin ?? null,
             repsMax: re.targetRepsMax ?? null,
@@ -271,16 +279,20 @@ export function buildModel(tables, { cutoff = Infinity } = {}) {
               weightMilli: rs.targetWeightMilli ?? null,
             })),
           };
-        })
-        .filter(Boolean);
+        });
 
       const tags = [];
       for (const item of items) {
+        if (!item.exercise) continue;
         const label = categoryOf.get(item.exercise.id);
         if (label && !tags.includes(label)) tags.push(label);
       }
 
-      return { id: routine.id, raw: routine, name: routine.name || 'Routine', items, tags };
+      // What is IN the routine, not just how many rows: the set total is the
+      // thing the builder is opened to check.
+      const plannedSetCount = items.reduce((total, item) => total + item.sets.length, 0);
+
+      return { id: routine.id, raw: routine, name: routine.name || 'Routine', items, tags, plannedSetCount };
     });
 
   /* ------------------------------------------------------ exercise library */

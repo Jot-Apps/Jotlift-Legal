@@ -21,9 +21,17 @@ import { icon } from '../icons.js';
 import * as api from './api.js';
 import { materialise, buildModel } from './store.js';
 import { fmt, priceRow, savedCountry } from '../prices.js';
-import { fromMilli, toMilli, convertMilli, fullDate, normalizeName, defaultIncrementMilli } from './domain.js';
+import {
+  fromMilli,
+  toMilli,
+  convertMilli,
+  countsAsWorking,
+  fullDate,
+  normalizeName,
+  defaultIncrementMilli,
+} from './domain.js';
 import * as views from './views.js';
-import { parseReps } from './views.js';
+import { routineBlocks } from './views.js';
 import { buildRows, toCsv, toXlsx, download } from './export.js';
 
 initTheme();
@@ -64,6 +72,10 @@ const state = {
   openRoutineItems: new Set(),
   // The handle to put the keyboard back on after a reorder re-renders the list.
   focusGrip: null,
+  // Grouping a superset is a mode: the exercise it started from, and what has
+  // been picked so far. Null when the routine is being edited normally.
+  supersetSource: null,
+  supersetPicked: new Set(),
   exportFormat: 'csv',
   exportFrom: null,
   exportTo: null,
@@ -129,6 +141,12 @@ async function load() {
     state.user = api.currentUser();
 
     state.phase = model.sessions.length === 0 && model.exercises.length === 0 ? 'empty' : 'ready';
+    if (state.phase === 'ready' && state.tab === 'routines') {
+      render();
+      // The same conversion the app runs when it opens a routine, so the two
+      // surfaces are looking at one plan rather than at two descriptions of it.
+      await ensurePlannedSets(shownRoutineId());
+    }
   } catch (error) {
     // A declined token is a sign-out, not a fetch failure: say the true thing.
     if (error instanceof api.ApiError && error.reason === 'auth') {
@@ -159,7 +177,7 @@ function render() {
    * it replaced was holding. Without this, moving a row with the keyboard moves
    * it once and then drops you at the top of the page. */
   if (state.focusGrip) {
-    const grip = root.querySelector(`[data-routine-item="${CSS.escape(state.focusGrip)}"] [data-routine-grip]`);
+    const grip = root.querySelector(`[data-routine-block="${CSS.escape(state.focusGrip)}"] [data-routine-grip]`);
     state.focusGrip = null;
     if (grip) grip.focus();
   }
@@ -416,6 +434,7 @@ function onClick(e) {
       /* the tab just is not remembered */
     }
     render();
+    if (state.tab === 'routines') ensurePlannedSets(shownRoutineId());
     return;
   }
 
@@ -528,7 +547,11 @@ function onClick(e) {
   if (routine) {
     harvestRoutine();
     state.selectedRoutine = routine.dataset.routine;
+    state.supersetSource = null;
+    state.supersetPicked = new Set();
     render();
+    // The same conversion the app runs when it opens a routine.
+    ensurePlannedSets(state.selectedRoutine);
     return;
   }
   if (target('[data-routine-new]')) {
@@ -554,9 +577,22 @@ function onClick(e) {
     toggleRoutineItem(rtOpen);
     return;
   }
-  const rtPlan = target('[data-routine-plan-sets]');
-  if (rtPlan) {
-    planRoutineSets(rtPlan.closest('[data-routine-item]').dataset.routineItem);
+  if (target('[data-superset-add]')) {
+    startSuperset(target('[data-superset-add]').closest('[data-routine-item]').dataset.routineItem);
+    return;
+  }
+  if (target('[data-superset-remove]')) {
+    ungroupRoutineItem(target('[data-superset-remove]').closest('[data-routine-item]').dataset.routineItem);
+    return;
+  }
+  if (target('[data-superset-confirm]')) {
+    groupRoutineItems();
+    return;
+  }
+  if (target('[data-superset-cancel]')) {
+    state.supersetSource = null;
+    state.supersetPicked = new Set();
+    render();
     return;
   }
   if (target('[data-routine-set-add]')) {
@@ -599,25 +635,29 @@ function onClick(e) {
 
 }
 
-/* ================================================== reordering an exercise */
+/* ==================================================== reordering a routine */
 
-/* The exercises in a routine reorder by dragging the handle at the start of the
- * row. The dragged row follows the pointer, and the rows it passes move out from
- * under it AS IT GOES, so what is on screen at any moment is the order that gets
- * saved: nothing is inferred afterwards from where a pointer happened to be let
- * go. On release the order is read back off the DOM and committed once.
+/* A routine reorders by dragging the handle at the start of a BLOCK. The dragged
+ * block follows the pointer, and the blocks it passes move out from under it AS
+ * IT GOES, so what is on screen at any moment is the order that gets saved:
+ * nothing is inferred afterwards from where a pointer happened to be let go. On
+ * release the order is read back off the DOM and committed once.
+ *
+ * A BLOCK, not a row, and that is what keeps a superset whole: its members are
+ * contiguous by definition, so the thing that moves is the group, and flattening
+ * the blocks at the end is what keeps them together (the app's `reorderedIds`).
  *
  * Pointer events, so mouse, trackpad, touch and pen are one path rather than
  * three. The handle carries `touch-action: none`, which is what stops a touch
- * drag from scrolling the page instead of moving the row, and it is a real
- * button: the arrow keys move the row for anyone not using a pointer.
+ * drag from scrolling the page instead of moving the block, and it is a real
+ * button: the arrow keys move it for anyone not using a pointer.
  */
 let drag = null;
 
 root.addEventListener('pointerdown', (e) => {
   const grip = e.target.closest && e.target.closest('[data-routine-grip]');
   if (!grip || state.busy) return;
-  const item = grip.closest('[data-routine-item]');
+  const item = grip.closest('[data-routine-block]');
   const list = item && item.parentElement;
   if (!item || !list) return;
   // Stops the press turning into a text selection or a page scroll mid-drag.
@@ -638,12 +678,12 @@ root.addEventListener('pointermove', (e) => {
   drag.item.style.transform = `translateY(${dy}px)`;
 
   const box = drag.item.getBoundingClientRect();
-  for (const sibling of drag.list.querySelectorAll(':scope > [data-routine-item]')) {
+  for (const sibling of drag.list.querySelectorAll(':scope > [data-routine-block]')) {
     if (sibling === drag.item) continue;
     const rect = sibling.getBoundingClientRect();
     const middle = rect.top + rect.height / 2;
-    // Rows have different heights once a plan is open, so the test is the
-    // neighbour's own middle rather than a row height.
+    // Blocks have different heights (a superset is taller, and any plan may be
+    // open), so the test is the neighbour's own middle, never a row height.
     const below = drag.item.compareDocumentPosition(sibling) & Node.DOCUMENT_POSITION_FOLLOWING;
     if (below && box.bottom > middle) {
       drag.list.insertBefore(drag.item, sibling.nextSibling);
@@ -673,8 +713,14 @@ function endDrag(e) {
   list.classList.remove('is-reordering');
   drag = null;
   if (!moved) return;
-  reorderRoutineItems(
-    [...list.querySelectorAll(':scope > [data-routine-item]')].map((node) => node.dataset.routineItem),
+  reorderRoutineItems(orderInDom(list));
+}
+
+/** The routine's exercise ids in the order the list currently shows them, read
+ *  block by block so a superset's members stay together and in their own order. */
+function orderInDom(list) {
+  return [...list.querySelectorAll(':scope > [data-routine-block]')].flatMap((block) =>
+    [...block.querySelectorAll('[data-routine-item]')].map((node) => node.dataset.routineItem),
   );
 }
 
@@ -688,7 +734,7 @@ root.addEventListener('keydown', (e) => {
   const direction = e.key === 'ArrowUp' ? 'up' : e.key === 'ArrowDown' ? 'down' : null;
   if (!direction) return;
   e.preventDefault();
-  moveRoutineItem(grip.closest('[data-routine-item]').dataset.routineItem, direction);
+  moveRoutineBlock(grip.closest('[data-routine-block]').dataset.routineBlock, direction);
 });
 
 /* Hovering a chart point reads it out, the same as clicking it. */
@@ -707,10 +753,25 @@ root.addEventListener(
 /* The subtype field only means anything for a bodyweight exercise, so it
    appears and disappears with the equipment select, without a re-render. */
 root.addEventListener('change', (e) => {
-  if (!e.target.matches('[data-equipment-select]')) return;
-  const panel = e.target.closest('[data-exercise-form], [data-exercise-create]');
-  const subtype = panel?.querySelector('[data-subtype-field]');
-  if (subtype) subtype.hidden = e.target.value !== 'bodyweight';
+  if (e.target.matches('[data-equipment-select]')) {
+    const panel = e.target.closest('[data-exercise-form], [data-exercise-create]');
+    const subtype = panel?.querySelector('[data-subtype-field]');
+    if (subtype) subtype.hidden = e.target.value !== 'bodyweight';
+    return;
+  }
+  /* Per side is the exercise's mode, not a target, so it commits on the tick
+     rather than waiting for Save: it is the same one-tap toggle the app's row
+     menu carries, and there is nothing else to type alongside it. */
+  if (e.target.matches('[data-per-side]')) {
+    setPerSide(e.target.closest('[data-routine-item]').dataset.routineItem, e.target.checked);
+    return;
+  }
+  const pick = e.target.closest('[data-superset-pick]');
+  if (pick) {
+    if (pick.checked) state.supersetPicked.add(pick.dataset.supersetPick);
+    else state.supersetPicked.delete(pick.dataset.supersetPick);
+    render();
+  }
 });
 
 function onInput(e) {
@@ -1047,23 +1108,6 @@ function harvestRoutine() {
     const item = routine.items.find((i) => i.id === rowEl.dataset.routineItem);
     if (!item) continue;
 
-    // The summary cells are only on screen while the exercise has no planned
-    // sets. Reading a field that is not there would clear the very targets the
-    // plan was built from.
-    const setsField = rowEl.querySelector('[data-item-field="sets"]');
-    if (setsField) {
-      const setsText = setsField.value.trim();
-      const sets = setsText === '' ? null : Math.min(99, Math.max(0, Number(setsText) || 0)) || null;
-      // An unparseable rep box keeps whatever the row already had, rather than
-      // quietly clearing a target because of a typo.
-      const reps = parseReps(rowEl.querySelector('[data-item-field="reps"]')?.value ?? '');
-      item.pending = {
-        targetSets: sets,
-        targetRepsMin: reps ? reps.min : item.repsMin,
-        targetRepsMax: reps ? reps.max : item.repsMax,
-      };
-    }
-
     for (const setEl of rowEl.querySelectorAll('[data-routine-set]')) {
       const set = item.sets.find((s) => s.id === setEl.dataset.routineSet);
       if (set) set.pending = readPlannedSet(setEl, item.exercise, set);
@@ -1179,6 +1223,10 @@ function routineEnvelopes(routine, { skipItems, skipSets } = {}) {
   return out;
 }
 
+/* The ceilings src/db/limits.ts puts on the same rows. Unreachable by a person,
+ * and here so the web cannot write past what the phone will accept. */
+const LIMITS = { exercisesPerRoutine: 200, setsPerRoutineExercise: 100 };
+
 /** A fresh routine_sets row, with the field set the app's own repository builds. */
 function newPlannedSet(routineExerciseId, orderIndex, seed = {}) {
   return {
@@ -1221,6 +1269,10 @@ async function addRoutineExercise() {
   const routine = harvestRoutine();
   const pick = root.querySelector('[data-routine-add-pick]');
   if (!routine || !pick?.value) return;
+  if (routine.items.length >= LIMITS.exercisesPerRoutine) {
+    flash('[data-routine-saved]', `A routine holds ${LIMITS.exercisesPerRoutine} exercises.`);
+    return;
+  }
 
   const row = {
     ...newStamps(),
@@ -1234,9 +1286,48 @@ async function addRoutineExercise() {
     supersetGroupId: null,
     perSide: 0,
   };
-  const ok = await commit([...routineEnvelopes(routine), envelope('routine_exercises', row)]);
+
+  const ok = await commit([
+    ...routineEnvelopes(routine),
+    envelope('routine_exercises', row),
+    // One working set, seeded from history, exactly as addExerciseToRoutine
+    // does: a routine is usually written around what is already happening.
+    envelope('routine_sets', newPlannedSet(row.id, 0, ghostSeed(pick.value))),
+  ]);
   if (!ok) return;
+  // Adding is the one moment the plan is certainly about to be edited, so the
+  // new row arrives open rather than as one more closed line at the far end.
+  state.openRoutineItems.add(row.id);
   render();
+}
+
+/**
+ * What the last session says set 1 of this exercise was, which is what a fresh
+ * planned set opens on (`ghostPrefillResolver` at ordinal 0). No history lands
+ * blank, which is the honest answer: nothing here invents a number (D25/D72).
+ *
+ * The pool is the WORKING sets, through the shared predicate, so a plan never
+ * opens on a warmup. Sides collapse the way the resolver collapses them: a plan
+ * carries one number whatever the exercise's per-side mode is, so both-sides
+ * rows are preferred and anything logged one-sided is the fallback.
+ *
+ * The app reads its last session straight off the sets table, with no endedAt
+ * filter, so a workout in progress can seed it. This page only ever holds
+ * FINISHED workouts, so it seeds from the last one of those.
+ */
+function ghostSeed(exerciseId) {
+  const history = state.model.historyByExercise.get(exerciseId) || [];
+  const last = history[history.length - 1];
+  if (!last) return {};
+  const working = last.sets.filter((set) => countsAsWorking(set.setType));
+  const bothSides = working.filter((set) => set.side === 'both');
+  const pool = bothSides.length > 0 ? bothSides : working;
+  const hit = pool[0] ?? pool[pool.length - 1];
+  if (!hit) return {};
+  // 0 reps is the logger's not-yet-filled sentinel, so it seeds no target. The
+  // weight deliberately does not get the same treatment: a logged 0 is a real 0.
+  const reps = hit.reps > 0 ? hit.reps : null;
+  return { targetRepsMin: reps, targetRepsMax: reps, targetWeightMilli: hit.weightMilli };
 }
 
 async function removeRoutineItem(itemId) {
@@ -1263,18 +1354,28 @@ async function removeRoutineItem(itemId) {
   render();
 }
 
-/** Move one exercise a single place. The handle's keyboard route. */
-async function moveRoutineItem(itemId, direction) {
-  const routine = state.model.routines.find((r) => r.items.some((i) => i.id === itemId));
+/**
+ * Move one block a single place. The handle's keyboard route, and the same
+ * definition of a move the drag uses: a block is lifted out and inserted, so a
+ * superset travels whole and its members stay contiguous.
+ */
+async function moveRoutineBlock(blockKey, direction) {
+  const routine = state.model.routines.find((r) => r.id === shownRoutineId());
   if (!routine) return;
-  const from = routine.items.findIndex((i) => i.id === itemId);
+  const blocks = routineBlocks(routine.items);
+  const from = blocks.findIndex((b) => blockKeyOf(b) === blockKey);
   const to = direction === 'up' ? from - 1 : from + 1;
-  if (to < 0 || to >= routine.items.length) return;
+  if (from < 0 || to < 0 || to >= blocks.length) return;
 
-  const order = routine.items.map((i) => i.id);
-  [order[from], order[to]] = [order[to], order[from]];
-  state.focusGrip = itemId;
-  await reorderRoutineItems(order);
+  const next = blocks.slice();
+  next.splice(to, 0, next.splice(from, 1)[0]);
+  state.focusGrip = blockKey;
+  await reorderRoutineItems(next.flatMap((b) => b.items.map((i) => i.id)));
+}
+
+/** What names a block in the DOM: a superset by its group, a lone row by its id. */
+function blockKeyOf(block) {
+  return block.kind === 'group' ? block.groupId : block.items[0].id;
 }
 
 /** Write a whole new order for a routine's exercises. `order` is item ids. */
@@ -1335,39 +1436,139 @@ function toggleRoutineItem(button) {
 }
 
 /**
- * Give an exercise a set of its own per planned set.
+ * Give every exercise in a routine its own planned sets, once, when the routine
+ * is opened.
  *
- * The same conversion the app runs the first time it opens a routine built
- * before per-set plans existed (`ensurePlannedSets`): `targetSets ?? 3` working
- * sets, each carrying the summary's rep range. Here it is a button rather than
- * something that happens on open, so the write is the reader's, and after it the
- * plan is what the routine runs.
+ * THE APP'S OWN CONVERSION (`ensurePlannedSets`), run at the same moment: an
+ * exercise with no planned rows gets `targetSets ?? 3` working sets carrying its
+ * summary rep range. Whichever surface opens the routine first does it, and the
+ * other finds nothing left to do, so both sides end up looking at the same plan
+ * rather than at two different descriptions of one.
+ *
+ * NEVER from a post-mutation path, which is why it hangs off opening a routine
+ * and nothing else: removing every set from an exercise while working on it must
+ * not put three back.
  */
-async function planRoutineSets(itemId) {
+async function ensurePlannedSets(routineId) {
+  // No entitlement check of its own: `commit` is the one gate on writing, and a
+  // second copy of that rule here is a second place for it to go stale.
+  const routine = state.model?.routines.find((r) => r.id === routineId);
+  if (!routine) return;
+
+  const rows = [];
+  for (const item of routine.items) {
+    if (item.sets.length > 0) continue;
+    const count = Math.min(LIMITS.setsPerRoutineExercise, Math.max(1, item.targetSets ?? 3));
+    for (let i = 0; i < count; i++) {
+      rows.push(newPlannedSet(item.id, i, { targetRepsMin: item.repsMin, targetRepsMax: item.repsMax }));
+    }
+  }
+  if (rows.length === 0) return;
+
+  const ok = await commit(rows.map((row) => envelope('routine_sets', row)));
+  if (ok) render();
+}
+
+/** The routine the panel is showing: the chosen one, or the first. */
+function shownRoutineId() {
+  const routines = state.model?.routines || [];
+  const chosen = routines.find((r) => r.id === state.selectedRoutine);
+  return (chosen || routines[0])?.id ?? null;
+}
+
+/**
+ * Turn one exercise's per-side mode on or off (D13).
+ *
+ * The EXERCISE's mode, never a set's: a per-side card logs a left and a right
+ * row at one order index, so it could not be per-set even in principle. It
+ * carries into the workout started from this routine.
+ */
+async function setPerSide(itemId, perSide) {
   const routine = harvestRoutine();
   const item = routine?.items.find((i) => i.id === itemId);
-  if (!item || item.sets.length > 0) return;
-
-  const summary = {
-    targetSets: item.targetSets,
-    targetRepsMin: item.repsMin,
-    targetRepsMax: item.repsMax,
-    ...(item.pending || {}),
-  };
-  const count = Math.min(20, Math.max(1, summary.targetSets ?? 3));
-  const rows = [];
-  for (let i = 0; i < count; i++) {
-    rows.push(
-      newPlannedSet(item.id, i, {
-        targetRepsMin: summary.targetRepsMin,
-        targetRepsMax: summary.targetRepsMax,
-      }),
-    );
-  }
-
-  const ok = await commit([...routineEnvelopes(routine), ...rows.map((r) => envelope('routine_sets', r))]);
+  if (!item) return;
+  const ok = await commit([
+    ...routineEnvelopes(routine, { skipItems: new Set([itemId]) }),
+    itemEnvelope(item, { perSide: perSide ? 1 : 0 }),
+  ]);
   if (!ok) return;
-  state.openRoutineItems.add(itemId);
+  render();
+}
+
+/* ---------------------------------------------------------------- supersets */
+
+/* Rows sharing a non-null group id are a superset (R2-8): they render as one
+ * well, move as one block, and the grouping carries into the workout started
+ * from the routine. Grouping is a mode, as it is in the app: pick the exercises,
+ * then one control confirms.
+ */
+
+/** Enter the picker, having first saved whatever was typed: the picker replaces
+ *  the rows on screen, and an uncommitted target would go with them. */
+async function startSuperset(itemId) {
+  const routine = harvestRoutine();
+  if (!routine) return;
+  const pending = routineEnvelopes(routine);
+  if (pending.length > 0 && !(await commit(pending))) return;
+  state.supersetSource = itemId;
+  state.supersetPicked = new Set([itemId]);
+  render();
+}
+
+/**
+ * Group the picked exercises. A fresh group id on each, then the order is
+ * rewritten so the members sit together at the earliest one's place, mirroring
+ * the app's `contiguousOrder`: a superset is contiguous by definition, and the
+ * logger keeps it that way.
+ */
+async function groupRoutineItems() {
+  const routine = state.model.routines.find((r) => r.id === shownRoutineId());
+  if (!routine) return;
+  const members = routine.items.filter((i) => state.supersetPicked.has(i.id) && i.supersetGroupId == null);
+  if (members.length < 2) return;
+
+  const groupId = crypto.randomUUID();
+  const memberIds = new Set(members.map((i) => i.id));
+  const earliest = routine.items.findIndex((i) => memberIds.has(i.id));
+  const before = routine.items.slice(0, earliest).filter((i) => !memberIds.has(i.id));
+  const after = routine.items.filter((i) => !memberIds.has(i.id)).slice(before.length);
+  const order = [...before, ...members, ...after];
+
+  const ok = await commit(
+    order
+      .map((item, index) => {
+        const extra = { orderIndex: index };
+        if (memberIds.has(item.id)) extra.supersetGroupId = groupId;
+        return itemUnchanged(item, extra) ? null : itemEnvelope(item, extra);
+      })
+      .filter(Boolean),
+  );
+  state.supersetSource = null;
+  state.supersetPicked = new Set();
+  if (!ok) return;
+  render();
+}
+
+/**
+ * Take one exercise out of its superset. A group left with a single member is
+ * not a superset, so it dissolves and that member is cleared too.
+ */
+async function ungroupRoutineItem(itemId) {
+  const routine = harvestRoutine();
+  const item = routine?.items.find((i) => i.id === itemId);
+  if (!item || !item.supersetGroupId) return;
+
+  const groupId = item.supersetGroupId;
+  const cleared = [item];
+  const remaining = routine.items.filter((i) => i.supersetGroupId === groupId && i.id !== itemId);
+  if (remaining.length === 1) cleared.push(remaining[0]);
+
+  const clearedIds = new Set(cleared.map((i) => i.id));
+  const ok = await commit([
+    ...routineEnvelopes(routine, { skipItems: clearedIds }),
+    ...cleared.map((i) => itemEnvelope(i, { supersetGroupId: null })),
+  ]);
+  if (!ok) return;
   render();
 }
 
@@ -1377,6 +1578,11 @@ async function addRoutineSet(itemId) {
   const routine = harvestRoutine();
   const item = routine?.items.find((i) => i.id === itemId);
   if (!item) return;
+
+  if (item.sets.length >= LIMITS.setsPerRoutineExercise) {
+    flash('[data-routine-saved]', `An exercise holds ${LIMITS.setsPerRoutineExercise} planned sets.`);
+    return;
+  }
 
   const working = item.sets.filter((s) => plannedValues(s).setType === 'working');
   const prior = working[working.length - 1];
