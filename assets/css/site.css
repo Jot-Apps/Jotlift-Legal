@@ -765,12 +765,13 @@ img { max-width: 100%; }
 .routine-card__tags { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .routine-detail { background: var(--color-elevated); border-radius: var(--radius-lg); box-shadow: var(--elev-2); padding: 24px; }
-.routine-detail__head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.routine-detail__head { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; }
 .routine-detail__head h3 { margin: 0; font-size: 17px; font-weight: 600; color: var(--color-text); }
+.routine-detail__counts { margin: 6px 0 0; font-size: 13px; color: var(--color-text-quiet); font-variant-numeric: tabular-nums; }
 .routine-table { border-radius: var(--radius-md); overflow: hidden; background: var(--color-surface); }
 .routine-table__row { display: grid; grid-template-columns: 30px 22px minmax(0, 1fr) 72px 100px 40px; gap: 10px; padding: 12px 16px; font-size: 16px; align-items: center; min-height: 44px; }
-.routine-table__head + [data-routine-rows] .routine-item:first-child,
-.routine-item + .routine-item { border-top: 1px solid var(--color-hairline); }
+.routine-table__head + [data-routine-rows] .routine-block:first-child,
+.routine-block + .routine-block { border-top: 1px solid var(--color-hairline); }
 .routine-table__head { padding: 12px 16px; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--color-text-decorative); }
 .routine-table__n { color: var(--color-text-decorative); font-variant-numeric: tabular-nums; font-size: 14px; font-weight: 600; }
 .routine-table__name { min-width: 0; color: var(--color-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -785,9 +786,29 @@ img { max-width: 100%; }
 .routine-item { background: var(--color-surface); }
 .routine-open {
   display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%;
-  padding: 0; border: none; background: none; cursor: pointer; text-align: left;
+  padding: 0; border: none; background: none; text-align: left;
   font-family: var(--font-text); font-size: 16px; color: var(--color-text);
 }
+button.routine-open { cursor: pointer; }
+.routine-open__main { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+/* Per side is metadata, read under the name. It appears only when it is on. */
+.routine-table__mode { font-size: 12px; color: var(--color-text-quiet); }
+
+/* A superset recesses toward canvas inside the card, so it reads as one grouped
+   well rather than a bordered box of boxes. The handle is the GROUP's: a member
+   cannot move on its own. */
+.routine-superset {
+  margin: 10px 12px; border-radius: var(--radius-md);
+  background: var(--color-canvas); overflow: hidden;
+}
+.routine-superset__head {
+  display: flex; align-items: center; gap: 6px; padding: 8px 12px 4px 8px;
+  font-size: 13px; color: var(--color-text-quiet);
+}
+.routine-superset .routine-item { background: transparent; }
+.routine-superset .routine-item + .routine-item { border-top: 1px solid var(--color-hairline); }
+.routine-superset .routine-plan { background: transparent; }
+.routine-superset .cell-input, .routine-superset .cell-select { background: var(--color-surface); }
 .routine-open__chevron {
   display: inline-flex; flex: 0 0 auto; color: var(--color-text-decorative);
   transition: transform var(--motion-quick) var(--ease-standard);
@@ -808,14 +829,14 @@ img { max-width: 100%; }
 .grip:hover { color: var(--color-text); background: var(--color-canvas); }
 .grip:active { cursor: grabbing; }
 
-/* The row being dragged rides above the ones it passes, and the ones it passes
+/* The block being dragged rides above the ones it passes, and the ones it passes
    settle back rather than snapping. */
-.routine-item.is-dragging {
+.routine-block.is-dragging {
   position: relative; z-index: 2; border-radius: var(--radius-md);
   background: var(--color-elevated); box-shadow: var(--elev-2); cursor: grabbing;
 }
-.routine-item.is-dragging .grip { color: var(--color-text); }
-.is-reordering .routine-item:not(.is-dragging) {
+.routine-block.is-dragging .grip { color: var(--color-text); }
+.is-reordering .routine-block:not(.is-dragging) {
   transition: transform var(--motion-quick) var(--ease-standard);
 }
 .is-reordering { user-select: none; }
@@ -831,6 +852,34 @@ img { max-width: 100%; }
   color: var(--color-accent); cursor: pointer;
 }
 .routine-plan__add:hover { background: var(--color-accent-soft); }
+
+/* Per side and the superset actions belong to the exercise, so they head its
+   own panel. Quiet chrome: neither is a primary path. */
+.plan-tools {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px;
+  padding: 10px 0 4px; font-size: 14px;
+}
+.check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--color-text); }
+.check input {
+  width: 18px; height: 18px; margin: 0; accent-color: var(--color-accent); cursor: pointer;
+}
+/* Quiet, never accent: the superset actions are not this panel's tap path, and
+   the accent already rides on Add set below them (tint-scarcity, D51). */
+.plan-tools .linkish {
+  font-size: 14px; font-weight: 500; color: var(--color-text-quiet); text-decoration: underline;
+  text-underline-offset: 3px; text-decoration-color: var(--color-hairline);
+}
+.plan-tools .linkish:hover { color: var(--color-text); text-decoration-color: currentColor; }
+
+.pick-list { background: var(--color-surface); border-radius: var(--radius-md); overflow: hidden; }
+.pick-row {
+  display: flex; align-items: center; gap: 12px; padding: 13px 16px;
+  min-height: 44px; font-size: 16px; color: var(--color-text); cursor: pointer;
+}
+.pick-row + .pick-row { border-top: 1px solid var(--color-hairline); }
+.pick-row input { width: 18px; height: 18px; margin: 0; accent-color: var(--color-accent); cursor: pointer; }
+.pick-row__name { flex: 1; min-width: 0; }
+.pick-row__meta { font-size: 14px; color: var(--color-text-quiet); font-variant-numeric: tabular-nums; }
 
 .rsets { display: flex; flex-direction: column; }
 .rset { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding: 10px 0; }
