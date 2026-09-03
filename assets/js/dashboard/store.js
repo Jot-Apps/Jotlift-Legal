@@ -228,6 +228,7 @@ export function buildModel(tables, { cutoff = Infinity } = {}) {
   for (const rs of at(tables, 'routine_sets')) {
     group(routineSetsByExercise, rs.routineExerciseId, rs);
   }
+  for (const list of routineSetsByExercise.values()) list.sort((a, b) => a.orderIndex - b.orderIndex);
 
   const routineExercisesByRoutine = new Map();
   for (const re of at(tables, 'routine_exercises')) {
@@ -243,10 +244,13 @@ export function buildModel(tables, { cutoff = Infinity } = {}) {
           const exercise = exercisesById.get(re.exerciseId);
           if (!exercise) return null;
           const planned = routineSetsByExercise.get(re.id) || [];
-          // Target sets can be stated on the exercise or implied by the planned
-          // set rows; neither is required, and a routine with neither just sets
-          // the order.
-          const targetSets = re.targetSets ?? (planned.length || null);
+          /* THE PLANNED ROWS WIN WHEREVER THEY EXIST, because they are what
+           * actually runs: startFromRoutine seeds the workout from routine_sets
+           * and never reads the summary beside them. The summary
+           * (target_sets / target_reps_*) is the v1 shape the app lazily
+           * converts on its next builder open, so it is only the count while an
+           * exercise has no planned rows of its own. */
+          const targetSets = planned.length > 0 ? planned.length : (re.targetSets ?? null);
           return {
             id: re.id,
             raw: re,
@@ -255,6 +259,17 @@ export function buildModel(tables, { cutoff = Infinity } = {}) {
             repsMin: re.targetRepsMin ?? null,
             repsMax: re.targetRepsMax ?? null,
             perSide: !!re.perSide,
+            // One planned set per row, in order. `0` and `null` stay apart the
+            // whole way: a planned 0 asks for zero, a null carries what was
+            // last lifted, and `??` never tells them apart.
+            sets: planned.map((rs) => ({
+              id: rs.id,
+              raw: rs,
+              setType: rs.setType || 'working',
+              repsMin: rs.targetRepsMin ?? null,
+              repsMax: rs.targetRepsMax ?? null,
+              weightMilli: rs.targetWeightMilli ?? null,
+            })),
           };
         })
         .filter(Boolean);

@@ -78,6 +78,27 @@ export function countsInTotals(setType) {
   return TOTALLED_SET_TYPES.includes(setType);
 }
 
+/* ============ src/db/schema/sets.ts, src/ui/setTypeOptions.ts, routines/strings */
+
+/** Every set type, IN THE SCHEMA'S ORDER. A planned set names one of these. */
+export const SET_TYPES = ['working', 'warmup', 'drop', 'backoff', 'failure'];
+
+/**
+ * The one name for each set type. The app settled these in src/ui/setTypeOptions.ts
+ * after the logger and the routine builder had spent a while calling the same
+ * five types by different names; the web says what both of them say.
+ */
+export const SET_TYPE_LABELS = {
+  working: 'Working',
+  warmup: 'Warmup',
+  drop: 'Drop',
+  backoff: 'Back-off',
+  failure: 'Failure',
+};
+
+/** The badge letter a non-working planned set carries in the app's builder. */
+export const SET_TYPE_TAGS = { warmup: 'W', drop: 'D', backoff: 'B' };
+
 /* ============================================== src/db/volume.ts (D84) */
 
 /**
