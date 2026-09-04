@@ -15,6 +15,9 @@
  * not imply it carries on.
  */
 
+// FIRST, and it has to stay first: this module throws when the page is framed,
+// which aborts this one before a single line below it runs. See frame-guard.js.
+import './frame-guard.js';
 import { initTheme } from '../theme.js';
 import { applyAppLink } from '../app-link.js';
 import { icon } from '../icons.js';
