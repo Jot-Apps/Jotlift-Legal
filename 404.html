@@ -2,6 +2,28 @@
 <html lang="en" data-app="jotlift" data-theme="dark">
 <head>
 <meta charset="utf-8">
+<!-- Content Security Policy. Nothing here loads a third-party script, so every
+     executable resource resolves to this origin. The one inline script (the
+     pre-paint theme read further down this head) is allowed by its sha256 hash
+     rather than by 'unsafe-inline': a hash present in script-src makes the
+     browser ignore 'unsafe-inline' entirely, so an injected inline script is
+     still refused. Only the Inter webfont is off-origin, and it is the reason
+     style-src and font-src name Google at all.
+
+     'unsafe-inline' stays in style-src because the pages carry style
+     attributes; a style attribute cannot execute, and dropping it would cost
+     the chart its layout for no attacker capability.
+
+     form-action 'none' is a real failsafe rather than a formality: the sign-in
+     form is submitted by JS, so if that handler ever failed to run, the browser
+     would otherwise navigate and put the typed password in the URL.
+
+     frame-ancestors is DELIBERATELY ABSENT. Browsers ignore it in a meta
+     policy, and GitHub Pages sends no headers of our own, so stating it here
+     would read as clickjacking protection that does not exist. The dashboard
+     (the only page holding a session) refuses to run framed in JS instead; see
+     assets/js/dashboard/index.js. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-9PPnXDPvTWPjIk3zWfNq0cdWasemBD8gKhIcqQX4xds='; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src https://fonts.gstatic.com; img-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Page not found</title>
 <meta name="description" content="That page is not here. Go to the Jotlift home page, read how it works, or get in touch.">

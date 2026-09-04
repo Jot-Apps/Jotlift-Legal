@@ -39,7 +39,7 @@ assets/js/           theme, icons, prices, the hero walk
 assets/js/dashboard/ the signed-in surface
 assets/img/screens/  eight real app captures (1206x2622), light and dark
 data/                the two App Store Connect price exports
-tools/domain.test.mjs the domain checks (see below)
+tools/                the checks: domain rules, the relay, the page guards
 ```
 
 ## Pricing
@@ -66,14 +66,28 @@ web page show a figure before a store SDK has answered.
 ## The dashboard
 
 Signs in against the Jotlift Supabase project and reads the log the phone backed
-up. It uses the **same four edge functions the app uses** (`pull`, `push`,
-`entitlement`, `export`) rather than going at the tables directly, so a web edit
-lands under the same rules a phone edit does: the relay validates the stamp
-against its own clock and settles each envelope.
+up. It uses **the app's own edge functions** (`export`, `entitlement`, `push`)
+rather than going at the tables directly, so a web edit lands under the same
+rules a phone edit does: the relay validates the stamp against its own clock and
+settles each envelope.
+
+Reads go through `export`, **not `pull`**. `pull` is the live-sync leg and is
+entitlement-gated, so it answers a lapsed owner with 402, and the lapsed
+dashboard is supposed to show the log frozen at the day the subscription ended.
+`export` is the always-allowed one-off feed read, returns the same records, and
+pages the whole feed server-side.
 
 The publishable key in `assets/js/dashboard/api.js` is public by design. It
-identifies the project and grants nothing; row-level security ties every row to
-`owner_id = auth.uid()`.
+identifies the project and grants nothing: `authenticated` holds no SELECT on
+any table, so PostgREST cannot read one at all, and the relay derives the owner
+from the caller's token rather than from anything the caller sends.
+
+Every page carries a Content Security Policy in its own `<meta>` tag, because
+GitHub Pages sends no headers we control. `frame-ancestors` is unavailable that
+way (browsers ignore it in a meta policy), so the dashboard — the only page that
+holds a session — refuses to run framed in JS instead:
+`assets/js/dashboard/frame-guard.js`. `tools/security.test.mjs` drives both in a
+real browser.
 
 Three gates, in order: no session, then `entitlement` (`none` gets the upgrade
 screen and no data), then the working dashboard. `lapsed` gets the same
